@@ -45,6 +45,12 @@ struct Qwen35LayerWeights {
     const void* shared_gate = nullptr;   // [hidden, moe_ffn]
     const void* shared_up   = nullptr;   // [hidden, moe_ffn]
     const void* shared_down = nullptr;   // [moe_ffn, hidden]
+
+    // GGUF path: experts kept quantized in VRAM (gguf-native [E,out,in] layout).
+    // When gate_q != nullptr the model dequantizes these per-layer into scratch
+    // instead of using the bf16 gate/up/down above. *_qtype are ggml type ids.
+    const void* gate_q = nullptr; const void* up_q = nullptr; const void* down_q = nullptr;
+    int gate_qtype = 0, up_qtype = 0, down_qtype = 0;
 };
 
 struct Qwen35Weights {
@@ -66,6 +72,11 @@ public:
     // Load weights from a sparkinfer weight directory (see tools/convert_qwen35.py).
     // Returns false on failure. Allocates device buffers it owns.
     bool load_weights(const std::string& dir);
+
+    // Load weights directly from a GGUF file (native). Dense tensors are
+    // dequantized to bf16; expert tensors are kept quantized in VRAM and
+    // dequantized per-layer at decode time (Q4_K_M-sized resident footprint).
+    bool load_gguf(const std::string& path);
 
     // Greedy generate: prompt token ids -> generated token ids (host).
     std::vector<int> generate(const std::vector<int>& prompt_ids, int max_new_tokens);

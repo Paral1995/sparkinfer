@@ -9,10 +9,12 @@
 
 #include "sparkinfer/models/qwen35.h"
 #include "sparkinfer/kv_ops.h"
+#include "sparkinfer/gguf.h"
 #include "sparkinfer/kernels/attention.h"
 #include "sparkinfer/kernels/gemm.h"
 #include "sparkinfer/kernels/fused.h"
 #include "sparkinfer/kernels/moe.h"
+#include "sparkinfer/kernels/quant.h"
 
 #include <cuda_runtime.h>
 #include <cstdio>
@@ -44,7 +46,9 @@ struct Qwen35Model::Impl {
     float* logits;
     int *d_tok, *d_out_id, *d_pos, *d_seqlen, *d_writepos, *d_shared_ids;
     float* d_shared_w;
-    std::vector<void*> owned;   // device buffers from load_weights
+    std::vector<void*> owned;   // device buffers from load_weights / load_gguf
+    // GGUF quantized-expert scratch (allocated by load_gguf)
+    bf16 *d_expert_tmp = nullptr, *d_gate_s = nullptr, *d_up_s = nullptr, *d_down_s = nullptr;
 
     template <class T> T* alloc(size_t n) { void* p=nullptr; cu(cudaMalloc(&p, n*sizeof(T)), "malloc"); return (T*)p; }
 };
@@ -77,6 +81,7 @@ Qwen35Model::~Qwen35Model() {
     cudaFree(p_->routed); cudaFree(p_->shared); cudaFree(p_->logits);
     cudaFree(p_->d_tok); cudaFree(p_->d_out_id); cudaFree(p_->d_pos);
     cudaFree(p_->d_seqlen); cudaFree(p_->d_writepos); cudaFree(p_->d_shared_ids); cudaFree(p_->d_shared_w);
+    cudaFree(p_->d_expert_tmp); cudaFree(p_->d_gate_s); cudaFree(p_->d_up_s); cudaFree(p_->d_down_s);
     cudaStreamDestroy(p_->stream);
     delete p_;
 }
@@ -123,7 +128,18 @@ int Qwen35Model::forward_token(int token_id, int position) {
         launch_residual_add(s.x, s.ao, s.h, H, st);
         kernels::launch_rmsnorm(s.h, w.post_attn_norm, s.hn, 1, H, c.rms_eps, st);
 
-        s.engine->set_layer_weights(L, {w.router_w, w.gate, w.up, w.down});
+        if (w.gate_q) {   // GGUF: dequantize this layer's experts into scratch
+            const long EFH = (long)c.n_experts * c.moe_ffn * c.hidden;
+            kernels::launch_gguf_dequant(w.gate_qtype, w.gate_q, s.d_expert_tmp, EFH, st);
+            kernels::launch_transpose3d_bf16(s.d_expert_tmp, s.d_gate_s, c.n_experts, c.moe_ffn, c.hidden, st);
+            kernels::launch_gguf_dequant(w.up_qtype, w.up_q, s.d_expert_tmp, EFH, st);
+            kernels::launch_transpose3d_bf16(s.d_expert_tmp, s.d_up_s, c.n_experts, c.moe_ffn, c.hidden, st);
+            kernels::launch_gguf_dequant(w.down_qtype, w.down_q, s.d_expert_tmp, EFH, st);   // natural [E,H,F]
+            kernels::launch_transpose3d_bf16(s.d_expert_tmp, s.d_down_s, c.n_experts, c.hidden, c.moe_ffn, st);
+            s.engine->set_layer_weights(L, {w.router_w, s.d_gate_s, s.d_up_s, s.d_down_s});
+        } else {
+            s.engine->set_layer_weights(L, {w.router_w, w.gate, w.up, w.down});
+        }
         s.engine->forward(s.hn, s.routed, 1, L, st);
         if (c.n_shared > 0) {
             kernels::launch_moe_expert_ffn(s.hn, w.shared_gate, w.shared_up, w.shared_down,
@@ -202,6 +218,78 @@ bool Qwen35Model::load_weights(const std::string& dir) {
         if (!w.wq || !w.gate || !w.router_w) return false;
     }
     return true;
+}
+
+// ----- native GGUF load: dense -> bf16 (dequant + transpose), experts kept quantized -----
+bool Qwen35Model::load_gguf(const std::string& path) {
+    Impl& s = *p_;
+    const Qwen35Config& c = s.cfg;
+    GGUF g;
+    if (!g.open(path)) return false;
+
+    // upload raw quantized blocks, keep on device (for experts)
+    auto dev_quant = [&](const std::string& name, int& qtype) -> const void* {
+        const GGUFTensor* t = g.tensor(name);
+        if (!t) { fprintf(stderr, "[gguf] missing %s\n", name.c_str()); return nullptr; }
+        qtype = t->ggml_type;
+        void* d = nullptr;
+        if (cudaMalloc(&d, t->n_bytes) != cudaSuccess) return nullptr;
+        cudaMemcpy(d, t->data, t->n_bytes, cudaMemcpyHostToDevice);
+        s.owned.push_back(d);
+        return d;
+    };
+    // dense weight -> bf16 (optionally transpose [out,in] -> [in,out])
+    auto dense = [&](const std::string& name, bool transpose) -> const void* {
+        const GGUFTensor* t = g.tensor(name);
+        if (!t) { fprintf(stderr, "[gguf] missing %s\n", name.c_str()); return nullptr; }
+        void* dq = nullptr; cudaMalloc(&dq, t->n_bytes);
+        cudaMemcpy(dq, t->data, t->n_bytes, cudaMemcpyHostToDevice);
+        void* tmp = nullptr; cudaMalloc(&tmp, (size_t)t->n_values * 2);
+        kernels::launch_gguf_dequant(t->ggml_type, dq, tmp, t->n_values, s.stream);
+        const void* result;
+        if (transpose) {
+            const int in = (int)t->dims[0], out = (int)t->dims[1];   // ggml ne0=in, ne1=out
+            void* dst = nullptr; cudaMalloc(&dst, (size_t)t->n_values * 2); s.owned.push_back(dst);
+            kernels::launch_transpose_bf16(tmp, dst, out, in, s.stream);   // [out,in]->[in,out]
+            cudaStreamSynchronize(s.stream); cudaFree(tmp); cudaFree(dq);
+            result = dst;
+        } else {
+            s.owned.push_back(tmp);
+            cudaStreamSynchronize(s.stream); cudaFree(dq);
+            result = tmp;
+        }
+        return result;
+    };
+
+    s.w.embed_tokens = dense("token_embd.weight", false);     // [vocab,hidden] as-is
+    s.w.final_norm   = dense("output_norm.weight", false);
+    const char* lm = g.tensor("output.weight") ? "output.weight" : "token_embd.weight";  // tied fallback
+    s.w.lm_head = dense(lm, true);                             // [vocab,hidden] -> [hidden,vocab]
+    if (!s.w.embed_tokens || !s.w.final_norm || !s.w.lm_head) return false;
+
+    s.w.layers.resize(c.n_layers);
+    for (int i = 0; i < c.n_layers; i++) {
+        std::string b = "blk." + std::to_string(i) + ".";
+        Qwen35LayerWeights& w = s.w.layers[i];
+        w.input_norm = dense(b + "attn_norm.weight", false);
+        w.wq = dense(b + "attn_q.weight", true); w.wk = dense(b + "attn_k.weight", true);
+        w.wv = dense(b + "attn_v.weight", true); w.wo = dense(b + "attn_output.weight", true);
+        w.q_norm = dense(b + "attn_q_norm.weight", false); w.k_norm = dense(b + "attn_k_norm.weight", false);
+        w.post_attn_norm = dense(b + "ffn_norm.weight", false);
+        w.router_w = dense(b + "ffn_gate_inp.weight", true);   // [E,H] -> [H,E]
+        w.gate_q = dev_quant(b + "ffn_gate_exps.weight", w.gate_qtype);   // kept quantized
+        w.up_q   = dev_quant(b + "ffn_up_exps.weight",   w.up_qtype);
+        w.down_q = dev_quant(b + "ffn_down_exps.weight", w.down_qtype);
+        if (!w.wq || !w.router_w || !w.gate_q || !w.up_q || !w.down_q) return false;
+        if (i == 0 || i == c.n_layers - 1) fprintf(stderr, "[gguf] layer %d loaded\n", i);
+    }
+    // per-layer expert dequant scratch
+    const long EFH = (long)c.n_experts * c.moe_ffn * c.hidden;
+    cudaMalloc((void**)&s.d_expert_tmp, (size_t)EFH * 2);
+    cudaMalloc((void**)&s.d_gate_s, (size_t)EFH * 2);
+    cudaMalloc((void**)&s.d_up_s,   (size_t)EFH * 2);
+    cudaMalloc((void**)&s.d_down_s, (size_t)EFH * 2);
+    return s.d_down_s != nullptr;
 }
 
 } // namespace sparkinfer
