@@ -7,7 +7,11 @@ add_executable(qwen35_cpu_test qwen35_cpu_test.cpp)
 set_target_properties(qwen35_cpu_test PROPERTIES CXX_STANDARD 17)
 add_test(NAME qwen35_cpu_test COMMAND qwen35_cpu_test)
 
-# GPU integration test — runs the real DecodeRunner; skips without a device.
+# GPU integration tests — run the real device path; skip without a device.
 add_executable(decode_runner_gpu_test decode_runner_gpu_test.cpp)
 target_link_libraries(decode_runner_gpu_test PRIVATE sparkinfer_runtime CUDA::cudart)
 add_test(NAME decode_runner_gpu_test COMMAND decode_runner_gpu_test)
+
+add_executable(qwen35_gpu_test qwen35_gpu_test.cpp)
+target_link_libraries(qwen35_gpu_test PRIVATE sparkinfer_runtime CUDA::cudart)
+add_test(NAME qwen35_gpu_test COMMAND qwen35_gpu_test)
