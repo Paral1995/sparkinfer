@@ -13,6 +13,12 @@ void launch_add_rmsnorm(const void* x_bf16, const void* residual_bf16,
                         const void* weight_bf16, void* out_bf16,
                         int rows, int cols, float eps, cudaStream_t stream = nullptr);
 
+// Fused residual+RMSNorm that also emits the residual sum:
+//   out_sum = x + residual;  out_norm = (out_sum / rms(out_sum)) * weight
+void launch_add_rmsnorm2(const void* x_bf16, const void* residual_bf16, const void* weight_bf16,
+                         void* out_sum_bf16, void* out_norm_bf16,
+                         int rows, int cols, float eps, cudaStream_t stream = nullptr);
+
 // Token embedding gather: out[t,:] = table[ids[t],:]  (bf16).
 //   ids: [n_tokens] (int32), table: [vocab, hidden], out: [n_tokens, hidden]
 void launch_embedding(const int* ids, const void* table, void* out,
