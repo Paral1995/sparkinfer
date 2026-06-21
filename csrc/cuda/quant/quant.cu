@@ -69,14 +69,14 @@ __global__ void dequant_int4_block_kernel(const unsigned char* __restrict__ pack
 #ifndef SPARKINFER_NVRTC_DEVICE_ONLY
 #include "sparkinfer/kernels/quant.h"
 
-void launch_quantize_i8(const void* in_bf16, int8_t* out, float* scale, int n, cudaStream_t stream) {
+void launch_quantize_i8(const void* in_bf16, signed char* out, float* scale, int n, cudaStream_t stream) {
     quantize_i8_kernel<<<1, 256, 0, stream>>>(reinterpret_cast<const __nv_bfloat16*>(in_bf16), out, scale, n);
 }
-void launch_dequantize_i8(const int8_t* in, const float* scale, void* out_bf16, int n, cudaStream_t stream) {
+void launch_dequantize_i8(const signed char* in, const float* scale, void* out_bf16, int n, cudaStream_t stream) {
     int blocks = (n + 255) / 256;
     dequantize_i8_kernel<<<blocks, 256, 0, stream>>>(in, scale, reinterpret_cast<__nv_bfloat16*>(out_bf16), n);
 }
-void launch_dequant_int4_block(const uint8_t* packed, const void* scales_bf16, void* out_bf16,
+void launch_dequant_int4_block(const unsigned char* packed, const void* scales_bf16, void* out_bf16,
                                int n, int block, cudaStream_t stream) {
     int blocks = (n + 255) / 256;
     dequant_int4_block_kernel<<<blocks, 256, 0, stream>>>(
