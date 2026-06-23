@@ -80,7 +80,18 @@ bool GGUF::open(const std::string& path) {
         else if (vt == VT_ARR) {
             uint32_t et = c.rd<uint32_t>(); uint64_t n = c.rd<uint64_t>();
             if (et == VT_STR) { for (uint64_t k = 0; k < n && c.ok; k++) c.rd_str(); }
-            else c.skip((size_t)n * scalar_size(et));
+            else {
+                // Skip the scalar payload, but fail loudly on an unsupported element
+                // type (scalar_size==0 -> a 0-byte skip would desync the cursor) or a
+                // declared span that overflows / runs past the file.
+                int es = scalar_size(et);
+                if (es == 0 || n > (c.size - c.off) / (size_t)es) {
+                    fprintf(stderr, "[gguf] bad metadata array (elem type %u, n=%llu) for %s\n",
+                            et, (unsigned long long)n, key.c_str());
+                    return false;
+                }
+                c.skip((size_t)n * es);
+            }
         } else { fprintf(stderr, "[gguf] unknown vt %u for %s\n", vt, key.c_str()); return false; }
     }
     if (!c.ok) { fprintf(stderr, "[gguf] metadata parse error\n"); return false; }
