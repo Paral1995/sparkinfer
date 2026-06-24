@@ -105,6 +105,17 @@ window.SPARKINFER = {
   ],
   "prs": [
     {
+      "num": 4,
+      "title": "kernels/attention: fix flash_prefill causal mask for seqlen_q != seqlen_kv",
+      "areas": [
+        "kernels"
+      ],
+      "label": "none",
+      "tps": 184.7,
+      "delta_pct": null,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/4"
+    },
+    {
       "num": 6,
       "title": "runtime/gguf: fail loudly on bad metadata array instead of desyncing the cursor",
       "areas": [
@@ -191,17 +202,6 @@ window.SPARKINFER = {
       "tps": 187.61,
       "delta_pct": 14.5,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/8"
-    },
-    {
-      "num": 4,
-      "title": "kernels/attention: fix flash_prefill causal mask for seqlen_q != seqlen_kv",
-      "areas": [
-        "kernels"
-      ],
-      "label": "REJECT",
-      "tps": 187.54,
-      "delta_pct": null,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/4"
     }
   ]
 };
