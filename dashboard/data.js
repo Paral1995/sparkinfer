@@ -4,12 +4,12 @@ window.SPARKINFER = {
   "status": {
     "gpu": "RTX 5090 · sm_120 · CUDA 13",
     "model": "Qwen3-30B-A3B · Q4_K_M",
-    "frontier_tps": 240.11,
+    "frontier_tps": 262.17,
     "ref_name": "llama.cpp",
     "ref_tps": 365.73,
     "vram_gb": 21.4,
-    "token_match": 0.97,
-    "kl": 0.147
+    "token_match": 0.99,
+    "kl": 0.1457
   },
   "passes_gpu": "RTX PRO 6000",
   "passes": [
@@ -82,6 +82,17 @@ window.SPARKINFER = {
     }
   ],
   "prs": [
+    {
+      "num": 52,
+      "title": "perf(kernels): two-pass multi-block decode argmax (1 SM -> all SMs)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "L",
+      "tps": 262.17,
+      "delta_pct": 9.2,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/52"
+    },
     {
       "num": 50,
       "title": "Decode dp4a (MMVQ) default + argmax widen: 180.4 → 235.4 tok/s (+30.5%) on RTX 5090",
@@ -356,6 +367,12 @@ window.SPARKINFER = {
       "name": "Decode dp4a (MMVQ) default +",
       "tps": 240.11,
       "pr": 50,
+      "date": "2026-06-25"
+    },
+    {
+      "name": "two-pass multi-block decode ",
+      "tps": 262.17,
+      "pr": 52,
       "date": "2026-06-25"
     }
   ]
