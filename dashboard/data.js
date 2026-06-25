@@ -83,6 +83,17 @@ window.SPARKINFER = {
   ],
   "prs": [
     {
+      "num": 48,
+      "title": "perf(kernels): multi-token register tiling in flash_decode_split (hd=128)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "none",
+      "tps": 185.28,
+      "delta_pct": null,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/48"
+    },
+    {
       "num": 45,
       "title": "perf(kernels): CUDA-graph-safe RoPE __constant__ inv_freq table",
       "areas": [
