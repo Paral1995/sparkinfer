@@ -128,6 +128,18 @@ bool GGUF::open(const std::string& path) {
 
     size_t data_start = (c.off + alignment - 1) / alignment * alignment;
     for (auto& in : infos) {
+        // The tensor offset/size are file-controlled. The metadata is already validated
+        // against the file, but the resolved data region is not — bounds-check it against
+        // size_ so a truncated/malformed GGUF fails loudly here instead of producing an
+        // out-of-bounds pointer that is later dereferenced (e.g. cudaMemcpy on upload).
+        // Written with subtraction so the address arithmetic itself cannot overflow.
+        if (data_start > size_ ||
+            in.offset > size_ - data_start ||
+            (uint64_t)in.t.n_bytes > size_ - data_start - in.offset) {
+            fprintf(stderr, "[gguf] tensor %s data out of bounds (offset=%llu n_bytes=%ld file=%zu)\n",
+                    in.name.c_str(), (unsigned long long)in.offset, in.t.n_bytes, size_);
+            return false;
+        }
         in.t.data = (const uint8_t*)base_ + data_start + in.offset;
         tensors_[in.name] = in.t;
     }
