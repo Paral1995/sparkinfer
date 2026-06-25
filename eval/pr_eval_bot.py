@@ -342,7 +342,7 @@ def main():
     # OLDEST-FIRST: evaluate ascending by PR number so the original of any duplicate is seen before
     # its copy, and the earliest submitter is graded first (fairness + copycat attribution).
     prs = json.loads(gh(["pr", "list", "-R", args.repo, "--state", "open",
-                         "--json", "number,headRefName,headRefOid,title,isCrossRepository,labels"]).stdout or "[]")
+                         "--json", "number,headRefName,headRefOid,title,isCrossRepository,labels,isDraft"]).stdout or "[]")
     prs.sort(key=lambda p: p["number"])
     if not prs:
         print("no open PRs"); return
@@ -378,6 +378,11 @@ def main():
     for pr in prs:
         num, branch, oid = pr["number"], pr["headRefName"], pr["headRefOid"][:7]
         ref = f"pull/{num}/head" if pr.get("isCrossRepository") else branch
+        # Gate 0 — draft PRs are work-in-progress: never evaluate them. Skip entirely (no greenlight,
+        # no labels). The bot picks them up once they're marked "Ready for review".
+        if pr.get("isDraft"):
+            print(f"PR #{num}: draft — skip (not evaluated until marked ready for review)")
+            continue
         # Gate 1 — blocked contributor: never spend GPU on a flagged/sybil PR.
         hits = pr_involved_logins(args.repo, num) & denylist
         if hits:
