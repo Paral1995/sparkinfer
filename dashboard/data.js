@@ -4,12 +4,12 @@ window.SPARKINFER = {
   "status": {
     "gpu": "RTX 5090 · sm_120 · CUDA 13",
     "model": "Qwen3-30B-A3B · Q4_K_M",
-    "frontier_tps": 187.61,
+    "frontier_tps": 197.22,
     "ref_name": "llama.cpp",
     "ref_tps": 365.73,
     "vram_gb": 21.4,
-    "token_match": 0.98,
-    "kl": 0.1434
+    "token_match": 0.97,
+    "kl": 0.1352
   },
   "passes_gpu": "RTX PRO 6000",
   "passes": [
@@ -82,6 +82,17 @@ window.SPARKINFER = {
     }
   ],
   "prs": [
+    {
+      "num": 44,
+      "title": "perf(kernels): vectorize fused RMSNorm with 128-bit bf16x8 loads",
+      "areas": [
+        "kernels"
+      ],
+      "label": "M",
+      "tps": 197.22,
+      "delta_pct": 5.1,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/44"
+    },
     {
       "num": 43,
       "title": "perf(kernels): vectorized K/V loads in flash_decode_split (hd=128)",
@@ -299,6 +310,12 @@ window.SPARKINFER = {
       "tps": 187.61,
       "pr": 8,
       "date": "2026-06-24"
+    },
+    {
+      "name": "vectorize fused RMSNorm with",
+      "tps": 197.22,
+      "pr": 44,
+      "date": "2026-06-25"
     }
   ]
 };
