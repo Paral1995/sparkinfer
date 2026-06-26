@@ -444,20 +444,21 @@ def reconcile_merge_labels(repo):
         for m in merged_first:
             record_merge(repo, m["number"])      # advance the journey/frontier for the merged winner
             remove_label(repo, m["number"], MERGE_FIRST_LABEL)
+        # Rivals stay `needs-rebase` (they have NOT rebased yet — that's exactly why `re-evaluate`
+        # would be wrong here). Just nudge them to rebase; the eval re-runs on the rebased commit.
         for num, labs in open_labels.items():
-            if NEEDS_REBASE_LABEL in labs and REEVALUATE_LABEL not in labs:
-                add_label(repo, num, REEVALUATE_LABEL)
-                labs.add(REEVALUATE_LABEL)        # keep the snapshot fresh so step 2 excludes it
+            if NEEDS_REBASE_LABEL in labs:
                 gh(["pr", "comment", str(num), "-R", repo, "--body",
-                    "<!-- sparkinfer-reeval -->\nThe round's `merge-first` PR was just merged. Please "
-                    "**rebase this branch onto `main`** — the bot will re-evaluate it against the new "
-                    "frontier (so you're credited for the *marginal* gain on top of what merged)."])
+                    "<!-- sparkinfer-rebase -->\nThe round's `merge-first` PR was just merged. Please "
+                    "**rebase this branch onto `main`** — once you push the rebase the bot re-evaluates "
+                    "it against the new frontier (crediting your *marginal* gain on top of what merged)."])
 
-    # 2) Rank open verified-speedup PRs; biggest → merge-first, rest → needs-rebase. Skip PRs tagged
-    #    re-evaluate — their score is stale (graded vs an older main); they must rebase + re-eval first.
+    # 2) Rank the open verified-speedup PRs that are FRESH (graded vs the CURRENT main) — i.e. NOT
+    #    `needs-rebase`. A needs-rebase PR's score is stale (an older main), so it can't be this
+    #    round's winner until it rebases and the bot re-grades it (which clears needs-rebase).
     scored = sorted(((num, by_num[num].get("delta_pct") or 0) for num in open_labels
                      if num in by_num and by_num[num].get("label") in SPEEDUP_LABELS
-                     and REEVALUATE_LABEL not in open_labels.get(num, set())),
+                     and NEEDS_REBASE_LABEL not in open_labels.get(num, set())),
                     key=lambda x: x[1], reverse=True)
     if not scored: return
     winner = scored[0][0]
@@ -465,18 +466,17 @@ def reconcile_merge_labels(repo):
     for L in (NEEDS_REBASE_LABEL, REEVALUATE_LABEL): remove_label(repo, winner, L)
     for num, _ in scored[1:]:
         add_label(repo, num, NEEDS_REBASE_LABEL)
-        remove_label(repo, num, MERGE_FIRST_LABEL)
+        for L in (MERGE_FIRST_LABEL, REEVALUATE_LABEL): remove_label(repo, num, L)
     print(f">> round labels: merge-first #{winner}; needs-rebase {[n for n,_ in scored[1:]] or 'none'}")
 
-    # Optionally auto-merge the winner (guarded), then flag the rivals to rebase + re-eval vs new main.
+    # Optionally auto-merge the winner (guarded). Rivals keep needs-rebase + a rebase nudge.
     if AUTO_MERGE_FIRST and try_auto_merge(repo, winner):
         record_merge(repo, winner)               # merged now → advance the journey/frontier
         for num, _ in scored[1:]:
-            add_label(repo, num, REEVALUATE_LABEL)
             gh(["pr", "comment", str(num), "-R", repo, "--body",
-                "<!-- sparkinfer-reeval -->\nThe round's `merge-first` PR was just merged. Please "
-                "**rebase this branch onto `main`** — the bot re-evaluates it against the new frontier "
-                "(crediting your *marginal* gain on top of what merged)."])
+                "<!-- sparkinfer-rebase -->\nThe round's `merge-first` PR was just merged. Please "
+                "**rebase this branch onto `main`** — the bot re-evaluates it on push (crediting your "
+                "*marginal* gain on top of what merged)."])
 
 def main():
     ap = argparse.ArgumentParser()
@@ -699,9 +699,15 @@ def main():
         if args.dry_run:
             print("--- dry-run, not posting ---\n" + body); continue
         if label:
-            for lab in {l for l in labels_on(args.repo, num) if l.startswith("eval:")}:
+            cur = labels_on(args.repo, num)
+            for lab in {l for l in cur if l.startswith("eval:")}:
                 remove_label(args.repo, num, lab)
             add_label(args.repo, num, f"eval:{label}")
+            # This was just graded against the CURRENT main, so it's no longer stale: clear
+            # needs-rebase. If it carried needs-rebase, it was a post-rebase re-eval → tag re-evaluate.
+            if NEEDS_REBASE_LABEL in cur:
+                remove_label(args.repo, num, NEEDS_REBASE_LABEL)
+                add_label(args.repo, num, REEVALUATE_LABEL)
         gh(["pr", "comment", str(num), "-R", args.repo, "--body", body])
         print(f"PR #{num}: posted {'eval:'+label if label else 'error'} — NOT merged.")
         if res: update_dashboard(args.repo, pr, areas, res)
