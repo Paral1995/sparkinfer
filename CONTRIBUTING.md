@@ -51,11 +51,12 @@ biggest one [`merge-first`](../../labels/merge-first) and the rest
 [`needs-rebase`](../../labels/needs-rebase). The `merge-first` winner is **auto-merged** once it
 clears every guard — verified speedup, clean CI, no conflicts, author in good standing, and it
 touches only `kernels`/`runtime`/`moe` (never the maintainer-owned paths); a maintainer can stop
-that with a `hold` label. Once the `merge-first` PR is merged, the others are
-flagged [`re-evaluate`](../../labels/re-evaluate) — **rebase onto the new `main`** and the bot
-re-runs your eval against the new frontier, so you're credited for the **marginal** gain on top of
-what merged (independent wins stack and keep scoring; a change the merge already captured drops to
-`none`). Keep your branch rebased on `main`. The eval loop
+that with a `hold` label. Once the `merge-first` PR is merged, the others **stay `needs-rebase`** —
+**rebase your branch onto the new `main`** and push; the bot then re-runs your eval against the new
+frontier (briefly tagging [`re-evaluate`](../../labels/re-evaluate) during the re-grade), so you're
+credited for the **marginal** gain on top of what merged (independent wins stack and keep scoring; a
+change the merge already captured drops to `none`). A `needs-rebase` PR can't win the next round
+until you actually rebase + it re-evals. Keep your branch rebased on `main`. The eval loop
 labels each PR **XL / L / M / S / XS** from the measured delta (or **BASELINE** for the first
 verified entry on a new model/target) — never by hand — and that tier is the payout. A speedup
 is scored the same wherever it lands (`kernels/`, `runtime/`, `moe/`); there is **no
