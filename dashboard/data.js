@@ -90,10 +90,10 @@ window.SPARKINFER = {
         "runtime"
       ],
       "label": "XS",
-      "tps": 390.25,
-      "delta_pct": 2.4,
+      "tps": 404.06,
+      "delta_pct": 2.5,
       "top1": 0.95,
-      "kl": 0.2035,
+      "kl": 0.2104,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/83"
     },
     {
