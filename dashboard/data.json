@@ -83,6 +83,19 @@
   ],
   "prs": [
     {
+      "num": 72,
+      "title": "perf(gemm): split-K the router projection GEMV for decode occupancy (+3% decode)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "S",
+      "tps": 394.45,
+      "delta_pct": 3.5,
+      "top1": 0.97,
+      "kl": 0.1417,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/72"
+    },
+    {
       "num": 73,
       "title": "perf(moe): skip the unused per-expert token count in single-token decode (+6% decode)",
       "areas": [
@@ -94,19 +107,6 @@
       "top1": 0.98,
       "kl": 0.1453,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/73"
-    },
-    {
-      "num": 72,
-      "title": "perf(gemm): split-K the router projection GEMV for decode occupancy (+3% decode)",
-      "areas": [
-        "kernels"
-      ],
-      "label": "S",
-      "tps": 384.08,
-      "delta_pct": 3.6,
-      "top1": 0.97,
-      "kl": 0.1417,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/72"
     },
     {
       "num": 76,
