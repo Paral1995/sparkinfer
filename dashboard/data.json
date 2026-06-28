@@ -3,12 +3,12 @@
   "status": {
     "gpu": "RTX 5090 · sm_120 · CUDA 13",
     "model": "Qwen3-30B-A3B · Q4_K_M",
-    "frontier_tps": 339.59,
+    "frontier_tps": 371.27,
     "ref_name": "llama.cpp",
     "ref_tps": 365.73,
     "vram_gb": 21.4,
-    "token_match": 0.95,
-    "kl": 0.1415
+    "token_match": 0.98,
+    "kl": 0.1453
   },
   "passes_gpu": "RTX PRO 6000",
   "passes": [
@@ -603,6 +603,12 @@
       "name": "split-K MMVQ down — +8% Qwen",
       "tps": 339.59,
       "pr": 74,
+      "date": "2026-06-28"
+    },
+    {
+      "name": "fuse per-head Q/K-norm and Q",
+      "tps": 371.27,
+      "pr": 76,
       "date": "2026-06-28"
     }
   ]
