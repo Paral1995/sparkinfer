@@ -88,9 +88,9 @@
       "areas": [
         "runtime"
       ],
-      "label": "XS",
+      "label": "REJECT",
       "tps": 404.06,
-      "delta_pct": 2.5,
+      "delta_pct": null,
       "top1": 0.95,
       "kl": 0.2104,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/83"
