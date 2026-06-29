@@ -12,7 +12,7 @@ window.SPARKINFER = {
     "kl": 0.1417,
     "ref_note": "128-tok decode, same RTX 5090"
   },
-  "passes_gpu": "RTX PRO 6000",
+  "passes_gpu": "RTX 5090",
   "passes": [
     {
       "name": "baseline",
