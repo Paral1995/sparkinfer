@@ -5,7 +5,7 @@
     "model": "Qwen3-30B-A3B · Q4_K_M",
     "frontier_tps": 410.85,
     "ref_name": "llama.cpp",
-    "ref_tps": 372,
+    "ref_tps": 366,
     "vram_gb": 21.4,
     "token_match": 0.97,
     "kl": 0.1417,
