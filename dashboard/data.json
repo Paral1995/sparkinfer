@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-01",
+  "updated": "2026-07-02",
   "status": {
     "gpu": "RTX 5090 · sm_120 · CUDA 13",
     "model": "Qwen3-30B-A3B · Q4_K_M",
@@ -83,6 +83,21 @@
   ],
   "prs": [
     {
+      "num": 122,
+      "title": "perf(attn): fuse QK-norm+RoPE+KV-append and emit Q8_1(attn) in flash combine",
+      "areas": [
+        "kernels",
+        "runtime"
+      ],
+      "label": "L",
+      "tps": 479.83,
+      "delta_pct": 3.4,
+      "top1": 0.9753,
+      "kl": 0.0126,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/122",
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0122-bd1c3f6"
+    },
+    {
       "num": 121,
       "title": "perf: optimize qwen decode kernels",
       "areas": [
@@ -90,12 +105,12 @@
         "runtime"
       ],
       "label": "none",
-      "tps": 467.8,
-      "delta_pct": 1.3,
-      "top1": 0.9771,
-      "kl": 0.0128,
+      "tps": 468.1,
+      "delta_pct": 0.9,
+      "top1": 0.9751,
+      "kl": 0.015,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/121",
-      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0121-cebd768"
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0121-ab00883"
     },
     {
       "num": 120,
@@ -691,17 +706,6 @@
       "tps": 184.68,
       "delta_pct": null,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/6"
-    },
-    {
-      "num": 11,
-      "title": "runtime/gguf: bound tensor n_dims to GGML_MAX_DIMS before writing dims[]",
-      "areas": [
-        "runtime"
-      ],
-      "label": "none",
-      "tps": 184.58,
-      "delta_pct": null,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/11"
     }
   ],
   "landed": [
