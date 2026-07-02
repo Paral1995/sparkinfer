@@ -5,7 +5,7 @@ Provision (or reuse) a Blackwell GPU on vast.ai, build a sparkinfer submission, 
 
 ```
 submission (git ref) ─► build from source ─► correctness gate (token-match / KL vs llama.cpp)
-                     ─► 128-token no-regression gate ─► 16k speed score ─► LABEL
+                     ─► 128-token + 512-context no-regression gates ─► 16k speed score ─► LABEL
 ```
 
 The numeric label is a **deterministic function of measurements** (`bench/scripts/label.py`) so
@@ -38,6 +38,7 @@ value. Reuse mode assumes the weights are cached at `/workspace/models`.
 
 The default eval target is now long-context decode:
 - **128-token decode**: no-regression guard. A PR must keep at least 98% of same-box `origin/main` short-decode speed.
+- **512-context decode**: no-regression guard. A PR must also keep at least 98% of same-box `origin/main` 512-context decode speed.
 - **16k context**: scored frontier. Labels are based on verified 16k speedup over same-box `origin/main`.
 
 32k telemetry is disabled by default; set `SPARKINFER_REPORT_REPS=1` only for explicit manual probes.
@@ -50,7 +51,7 @@ Set `SPARKINFER_EVAL_MODE=short` or pass `--eval-mode short` to keep the legacy 
 { "commit": "abc1234", "tps": 165.2, "top1": 1.0, "kl": 0.14, "frontier_tps": 164,
   "pass": true, "label": "none", "delta_tps": 1.2, "pct_over_frontier": 0.7 }
 ```
-Labels: **REJECT** (failed correctness or the 128-token no-regression gate) · **none** (within the significance gate) ·
+Labels: **REJECT** (failed correctness or a no-regression guard) · **none** (within the significance gate) ·
 **XS · S · M · L · XL** (verified speedup bucket, by fraction of remaining headroom closed).
 
 Policy tests:

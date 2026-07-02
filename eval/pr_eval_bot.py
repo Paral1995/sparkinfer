@@ -299,6 +299,11 @@ def render(res, oid):
         base = res.get("guard_128_baseline") or 0
         rows.append(f"| 128-token no-regression gate | {res.get('ctx_128_tps')} tok/s"
                     f"{f' vs main {base} tok/s' if base else ''} · {gate} |")
+    if res.get("ctx_512_tps") is not None:
+        gate = "pass" if res.get("guard_512_pass", True) else "fail"
+        base = res.get("guard_512_baseline") or 0
+        rows.append(f"| 512-context no-regression gate | {res.get('ctx_512_tps')} tok/s"
+                    f"{f' vs main {base} tok/s' if base else ''} · {gate} |")
     elif res.get("ctx_2048_tps") is not None:
         gate = "pass" if res.get("guard_2k_pass", True) else "fail"
         base = res.get("guard_2k_baseline") or 0
@@ -318,7 +323,7 @@ def render(res, oid):
             "BASELINE": "No frontier was set; this run establishes it."
             }.get(label, f"Verified speedup — **sets the new frontier to {res.get('tps')} tok/s** "
                          f"(was {res.get('frontier_tps','?')}).")
-    target_note = ("128-token no-regression gate · 16k scored frontier"
+    target_note = ("128-token + 512-context no-regression gates · 16k scored frontier"
                    if res.get("eval_mode") == "longctx" else "128-token decode frontier")
     return (f"<!-- sparkinfer-eval:{oid} -->\n"
             f"## {icon} sparkinfer auto-eval — `{oid}`\n\n"
@@ -377,12 +382,16 @@ def upload_eval_log(repo, num, title, oid, res, log_text, baseline):
                   "gpu": "RTX 5090 (sm_120) · vast.ai", "date": datetime.date.today().isoformat(),
                   "frontier": res.get("frontier_tps"),
                   "eval_mode": res.get("eval_mode"), "score_context": res.get("score_context"),
-                  "ctx_128_tps": res.get("ctx_128_tps"), "ctx_2048_tps": res.get("ctx_2048_tps"),
+                  "ctx_128_tps": res.get("ctx_128_tps"), "ctx_512_tps": res.get("ctx_512_tps"),
+                  "ctx_2048_tps": res.get("ctx_2048_tps"),
                   "ctx_16384_tps": res.get("ctx_16384_tps"),
                   "ctx_32768_tps": res.get("ctx_32768_tps"),
                   "guard_128_baseline": res.get("guard_128_baseline"),
                   "guard_128_ratio": res.get("guard_128_ratio"),
                   "guard_128_pass": res.get("guard_128_pass"),
+                  "guard_512_baseline": res.get("guard_512_baseline"),
+                  "guard_512_ratio": res.get("guard_512_ratio"),
+                  "guard_512_pass": res.get("guard_512_pass"),
                   "guard_2k_baseline": res.get("guard_2k_baseline"),
                   "guard_2k_ratio": res.get("guard_2k_ratio"),
                   "guard_2k_pass": res.get("guard_2k_pass"),
@@ -424,9 +433,10 @@ def update_dashboard(repo, pr, areas, res, proof_url=None):
              "delta_pct": res.get("pct_over_frontier"),
              "top1": res.get("top1"), "kl": res.get("kl"),
              "url": f"https://github.com/{repo}/pull/{num}"}
-    for k in ("eval_mode", "score_context", "ctx_128_tps", "ctx_2048_tps",
+    for k in ("eval_mode", "score_context", "ctx_128_tps", "ctx_512_tps", "ctx_2048_tps",
               "ctx_16384_tps", "ctx_32768_tps",
               "guard_128_baseline", "guard_128_ratio", "guard_128_pass",
+              "guard_512_baseline", "guard_512_ratio", "guard_512_pass",
               "guard_2k_baseline", "guard_2k_ratio", "guard_2k_pass"):
         if res.get(k) is not None:
             entry[k] = res.get(k)
@@ -453,6 +463,7 @@ def record_merge(repo, num):
         new_f = round(old_f * (1 + gain), 2) if old_f and gain > 0 else round(e.get("tps") or 0, 2)
         data["status"]["longctx_16k_tps"] = new_f
         if e.get("ctx_128_tps") is not None:   data["status"]["longctx_128_tps"] = round(e["ctx_128_tps"], 2)
+        if e.get("ctx_512_tps") is not None:   data["status"]["longctx_512_tps"] = round(e["ctx_512_tps"], 2)
         if e.get("ctx_2048_tps") is not None:  data["status"]["longctx_2k_tps"] = round(e["ctx_2048_tps"], 2)
         if e.get("ctx_32768_tps") is not None: data["status"]["longctx_32k_tps"] = round(e["ctx_32768_tps"], 2)
         if e.get("top1") is not None: data["status"]["longctx_token_match"] = round(e["top1"], 4)
@@ -783,12 +794,13 @@ def main():
               f"aborting; no PRs graded.\n{log}"); return
     run_baseline = bres["tps"]
     run_guard_128 = float(bres.get("ctx_128_tps") or bres.get("tps") or 0)
+    run_guard_512 = float(bres.get("ctx_512_tps") or 0)
     score_ctx = int(bres.get("score_context") or 128)
     if score_ctx == 128:
         print(f">> same-box baseline: origin/main = {run_baseline} tok/s on this box")
     else:
         print(f">> same-box baseline: origin/main @ {score_ctx} ctx = {run_baseline} tok/s; "
-              f"128-token guard = {run_guard_128} tok/s")
+              f"128-token guard = {run_guard_128} tok/s; 512-context guard = {run_guard_512} tok/s")
     # Sanity guard: origin/main IS the merged frontier code, so on a healthy box it should measure
     # within ~10% of the known frontier. A baseline well below that means the box is cold/throttling
     # or degraded — grading PRs against it inflates every delta (the cold-clock artifact that once
@@ -820,6 +832,7 @@ def main():
                "--reuse", str(cur_iid), "--ref", ref,
                "--frontier", str(cur_frontier), "--ceiling", str(args.ceiling),
                "--eval-mode", "longctx", "--guard-128-baseline", str(run_guard_128),
+               "--guard-512-baseline", str(run_guard_512),
                "--keep"]            # keep instance alive — bot stops it after all PRs
         if PINNED_INSTANCE and str(cur_iid) == PINNED_INSTANCE:
             cmd.append("--pinned")  # never destroy the pin; retry-then-fallback on bring-up failure

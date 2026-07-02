@@ -82,14 +82,14 @@ frozen reference, validated on both basket models (Qwen + Gemma). See
 
 Open a PR and a bot evaluates it automatically (polls every ~30 min). For each new commit it
 builds your branch **from source** on an RTX 5090, gates **correctness** (token-match / KL vs
-llama.cpp), checks that **2k-context decode does not regress**, scores **16k-context decode speed**,
-reports **32k telemetry**, and posts a comment with an **`eval:<label>`** verdict:
+llama.cpp), checks that **128-token and 512-context decode do not regress**, scores
+**16k-context decode speed**, and posts a comment with an **`eval:<label>`** verdict:
 
 | label | meaning |
 |---|---|
 | `XL · L · M · S · XS` | verified speedup over the live frontier, by **% gain** (`XS` 2–3.5% … `XL` >18%) |
 | `none` | correct, but no verified improvement (within the significance gate) |
-| `REJECT` | failed correctness, or regressed below the 2k no-regression guard |
+| `REJECT` | failed correctness, or regressed below a no-regression guard |
 | `BASELINE` | first verified entry; establishes the frontier |
 
 The label is a **deterministic function of the measurements**, so it's reproducible across
