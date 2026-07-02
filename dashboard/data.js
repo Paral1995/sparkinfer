@@ -115,6 +115,27 @@ window.SPARKINFER = {
   ],
   "prs": [
     {
+      "num": 126,
+      "title": "perf(attn): bf16 GQA tile12 + adaptive combine for 16k n_splits=256",
+      "areas": [
+        "kernels"
+      ],
+      "label": "S",
+      "tps": 252.39,
+      "delta_pct": 4.9,
+      "top1": 0.9643,
+      "kl": 0.0147,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/126",
+      "eval_mode": "longctx",
+      "score_context": 16384,
+      "ctx_2048_tps": 279.28,
+      "ctx_16384_tps": 252.39,
+      "guard_2k_baseline": 279.82,
+      "guard_2k_ratio": 0.9981,
+      "guard_2k_pass": true,
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0126-948a288"
+    },
+    {
       "num": 125,
       "title": "perf(attn): bf16 GQA smem tile + scale combine warps at 256 splits",
       "areas": [
@@ -766,17 +787,6 @@ window.SPARKINFER = {
       "tps": 186.41,
       "delta_pct": null,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/26"
-    },
-    {
-      "num": 27,
-      "title": "runtime/gguf: bounds-check tensor data region against file size (fix OOB read)",
-      "areas": [
-        "runtime"
-      ],
-      "label": "none",
-      "tps": 186.42,
-      "delta_pct": null,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/27"
     }
   ],
   "landed": [
