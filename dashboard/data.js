@@ -115,6 +115,27 @@ window.SPARKINFER = {
   ],
   "prs": [
     {
+      "num": 125,
+      "title": "perf(attn): bf16 GQA smem tile + scale combine warps at 256 splits",
+      "areas": [
+        "kernels"
+      ],
+      "label": "XS",
+      "tps": 228.76,
+      "delta_pct": 2.5,
+      "top1": 0.9819,
+      "kl": 0.0098,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/125",
+      "eval_mode": "longctx",
+      "score_context": 16384,
+      "ctx_2048_tps": 279.39,
+      "ctx_16384_tps": 228.76,
+      "guard_2k_baseline": 279.66,
+      "guard_2k_ratio": 0.999,
+      "guard_2k_pass": true,
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0125-f32bba0"
+    },
+    {
       "num": 124,
       "title": "Optimize 16k long-context GQA KV load: hoist block-table lookup + vectorize",
       "areas": [
@@ -756,17 +777,6 @@ window.SPARKINFER = {
       "tps": 186.42,
       "delta_pct": null,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/27"
-    },
-    {
-      "num": 28,
-      "title": "moe: default split-K down + PDL on Blackwell decode",
-      "areas": [
-        "kernels"
-      ],
-      "label": "none",
-      "tps": 187.06,
-      "delta_pct": null,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/28"
     }
   ],
   "landed": [
