@@ -117,6 +117,27 @@ window.SPARKINFER = {
   ],
   "prs": [
     {
+      "num": 131,
+      "title": "perf(attn): 128-bit uint4 KV staging in 16k GQA flash-decode split (+6% decode)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "none",
+      "tps": 265.41,
+      "delta_pct": 0.0,
+      "top1": 0.9795,
+      "kl": 0.0116,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/131",
+      "eval_mode": "longctx",
+      "score_context": 16384,
+      "ctx_128_tps": 482.28,
+      "ctx_16384_tps": 265.41,
+      "guard_128_baseline": 481.48,
+      "guard_128_ratio": 1.0017,
+      "guard_128_pass": true,
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0131-ddc40ff"
+    },
+    {
       "num": 128,
       "title": "perf(gemv): specialize q4 mmvq common K",
       "areas": [
@@ -137,27 +158,6 @@ window.SPARKINFER = {
       "guard_128_ratio": 1.0171,
       "guard_128_pass": true,
       "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0128-3e9a0c6"
-    },
-    {
-      "num": 131,
-      "title": "perf(attn): 128-bit uint4 KV staging in 16k GQA flash-decode split (+6% decode)",
-      "areas": [
-        "kernels"
-      ],
-      "label": "S",
-      "tps": 264.09,
-      "delta_pct": 4.7,
-      "top1": 0.9302,
-      "kl": 0.0157,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/131",
-      "eval_mode": "longctx",
-      "score_context": 16384,
-      "ctx_2048_tps": 278.06,
-      "ctx_16384_tps": 264.09,
-      "guard_2k_baseline": 277.78,
-      "guard_2k_ratio": 1.001,
-      "guard_2k_pass": true,
-      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0131-e3d6578"
     },
     {
       "num": 130,
