@@ -2,15 +2,13 @@
 
 # SP⚡RKINFER
 
-**Blackwell-native MoE/LLM inference runtime for SN74 on Gittensor.**
+**Fastest MoE/LLM inference runtime for consumer and edge Blackwell GPUs.**
 
-sparkinfer is the engineering loop for moving inference speed fast on consumer Blackwell GPUs:
-small CUDA changes, source-built PRs, same-box RTX 5090 evals, correctness gates against
-llama.cpp, and public run logs when a frontier PR lands.
+SP⚡RKINFER is a Blackwell-native inference runtime built for high-speed, power-optimized local AI on NVIDIA RTX 5090, RTX PRO 6000, RTX Spark, and Jetson Thor.
 
-The first target is Qwen3-30B-A3B / 35B-A3B Q4_K_M GGUF on `sm_120` / `sm_121`.
-The current work is not broad framework coverage; it is a focused sprint to make one real
-MoE decode path fast, measurable, and reproducible.
+It is designed for the next generation of personal agents, local copilots, robotics, and edge AI systems where inference speed, memory efficiency, and power efficiency decide how usable local intelligence feels.
+
+SP⚡RKINFER is continuously optimized through [Gittensor competition](https://gittensor.io/) and proprietary Kernel Design Agents, turning frontier CUDA improvements into faster, power-optimized local MoE/LLM decode on real Blackwell hardware.
 
 ## Current progress
 
