@@ -3,19 +3,19 @@
   "status": {
     "gpu": "RTX 5090 · sm_120 · CUDA 13",
     "model": "Qwen3-30B-A3B · Q4_K_M",
-    "frontier_tps": 487.1,
+    "frontier_tps": 493.56,
     "ref_name": "llama.cpp",
     "ref_tps": 365.85,
     "vram_gb": 21.4,
     "token_match": 0.9612,
     "kl": 0.0175,
     "ref_note": "128-tok decode rerun on current main, same RTX 5090 · Q4_K_M GGUF",
-    "longctx_16k_tps": 265.17,
+    "longctx_16k_tps": 266.14,
     "longctx_2k_tps": 277.78,
-    "longctx_token_match": 0.9595,
-    "longctx_kl": 0.0162,
-    "longctx_512_tps": 460.96,
-    "longctx_4k_tps": 348.68
+    "longctx_token_match": 0.9898,
+    "longctx_kl": 0.0197,
+    "longctx_512_tps": 469.58,
+    "longctx_4k_tps": 392.65
   },
   "context_baselines": [
     {
@@ -23,7 +23,7 @@
       "label": "128",
       "color": "#D14D72",
       "tokens": 128,
-      "sparkinfer_tps": 487.1,
+      "sparkinfer_tps": 493.56,
       "llamacpp_decode_tps": 365.85,
       "llamacpp_note": "128-token decode, no prefill context"
     },
@@ -32,7 +32,7 @@
       "label": "512",
       "color": "#7B5DFF",
       "tokens": 128,
-      "sparkinfer_tps": 460.96,
+      "sparkinfer_tps": 469.58,
       "llamacpp_decode_tps": 342.59,
       "llamacpp_note": "llama-batched-bench npp=512 ntg=128 npl=1"
     },
@@ -41,7 +41,7 @@
       "label": "4k",
       "color": "#0E8A16",
       "tokens": 128,
-      "sparkinfer_tps": 348.68,
+      "sparkinfer_tps": 392.65,
       "llamacpp_decode_tps": 292.99,
       "llamacpp_note": "llama-batched-bench npp=4096 ntg=128 npl=1"
     },
@@ -50,7 +50,7 @@
       "label": "16k",
       "color": "#B8860B",
       "tokens": 128,
-      "sparkinfer_tps": 265.17,
+      "sparkinfer_tps": 266.14,
       "llamacpp_decode_tps": 245.53,
       "llamacpp_note": "llama-batched-bench npp=16384 ntg=128 npl=1"
     }
@@ -1079,6 +1079,13 @@
       "name": "Enable GQA split path at 32 ",
       "tps": 348.68,
       "pr": 136,
+      "ctx": 4096,
+      "date": "2026-07-03"
+    },
+    {
+      "name": "use 128-split mid-context pl",
+      "tps": 392.65,
+      "pr": 138,
       "ctx": 4096,
       "date": "2026-07-03"
     }
