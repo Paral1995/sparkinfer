@@ -88,8 +88,9 @@ pin_clocks
 trap 'unpin_clocks' EXIT
 
 gclks=()
-median_ctx() {  # $1=context tokens, $2=repetitions
+median_ctx() {  # $1=context tokens, $2=repetitions ; reps<=0 SKIPS the context (returns 0, no run)
   local ctx="$1" reps="$2" vals=() t
+  [ "${reps:-0}" -le 0 ] && { echo 0; return; }
   for _ in $(seq 1 "$reps"); do
     t=$(si_run qwen3_gguf_bench "$GGUF" "$DECODE_TOKENS" "$ctx" 2>/dev/null |
         sed -n 's/.*decode tg *: *\([0-9.][0-9.]*\).*/\1/p' || true)
@@ -192,7 +193,9 @@ contexts = [
 ]
 for c in contexts:
     c["gain"] = 0.0 if c["base"] <= 0 else (c["tps"] - c["base"]) / c["base"]
-scorable = [c for c in contexts if c["base"] > 0]
+# A context measured with 0 reps (tps<=0) was intentionally skipped (e.g. Qwen3.6 runs only
+# 128/512/4k for now) — exclude it from scoring so a skipped context is never chosen or penalized.
+scorable = [c for c in contexts if c["base"] > 0 and c["tps"] > 0]
 chosen = max(scorable, key=lambda c: c["gain"]) if scorable else next(c for c in contexts if c["ctx"] == int("$SCORE_CTX"))
 print(json.dumps({"chosen": chosen, "contexts": contexts}, separators=(",", ":")))
 PY
@@ -230,7 +233,7 @@ PY
 )"
   CONTEXT_GAINS_JSON="$(SCORE_SELECT="$SCORE_SELECT" python3 - <<'PY'
 import json, os
-print(json.dumps({c["label"]: round(100*c["gain"], 2) for c in json.loads(os.environ["SCORE_SELECT"])["contexts"]}, separators=(",", ":")))
+print(json.dumps({c["label"]: round(100*c["gain"], 2) for c in json.loads(os.environ["SCORE_SELECT"])["contexts"] if c["tps"] > 0}, separators=(",", ":")))
 PY
 )"
   REGRESSION_LABELS_JSON="$(python3 - <<PY

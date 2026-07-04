@@ -48,12 +48,17 @@ if ! NO_PREBUILT=1 ensure_sparkinfer "$ARCH"; then
 fi
 
 # Primary = Qwen3.6 (Unsloth Dynamic UD-Q4_K_M — mixes Q5_K, the default UD path). Guard = Qwen3-30B.
+# The two models have DIFFERENT tokenizers (Qwen3.6 vocab 248k vs Qwen3 152k), and each model's dir
+# holds its own GGUF + tokenizer.json — so they must live in SEPARATE MODELS_DIRs or accuracy.sh would
+# score one model's ids against the other's tokenizer. Guard keeps the inherited MODELS_DIR.
 P_FILE="${PRIMARY_MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}"
 P_REPO="${PRIMARY_MODEL_REPO:-unsloth/Qwen3.6-35B-A3B-GGUF}"
 P_TOK="${PRIMARY_TOK_REPO:-Qwen/Qwen3.6-35B-A3B}"
+P_DIR="${PRIMARY_MODELS_DIR:-${MODELS_DIR:-$ROOT/models}36}"    # e.g. /workspace/models -> /workspace/models36
 G_FILE="${GUARD_MODEL_FILE:-Qwen3-30B-A3B-Q4_K_M.gguf}"
 G_REPO="${GUARD_MODEL_REPO:-Qwen/Qwen3-30B-A3B-GGUF}"
 G_TOK="${GUARD_TOK_REPO:-Qwen/Qwen3-30B-A3B}"
+G_DIR="${GUARD_MODELS_DIR:-${MODELS_DIR:-$ROOT/models}}"
 
 reap() { pkill -f llama-server 2>/dev/null || true; pkill -f qwen3_gguf 2>/dev/null || true; sleep 1; true; }
 
@@ -73,22 +78,28 @@ run_model() {  # $1=role  $2=file $3=repo $4=tok  $5=frontier  $6..=SPARKINFER_*
 # distance), mirroring the single-model eval. The guard is never scored, so no boost there.
 P_DIFF_REF="${SPARKINFER_P_LLAMA_128_BASELINE:-0}"
 
+# Qwen3.6 is scored on 128/512/4k ONLY for now — its long-context (16k/32k) decode is currently far
+# too slow (35B MoE dequant-bound) to sweep every eval. SCORE_REPS=0 skips the 16k context, GUARD_32K
+# _REPS=0 skips 32k (median_ctx returns 0 -> excluded from scoring + guards); the 3 live contexts get
+# 3-rep medians for a stable scored number. Re-enable 16k/32k by passing their reps + baselines.
 PRIMARY_JSON="$(run_model primary "$P_FILE" "$P_REPO" "$P_TOK" "$PRIMARY_FRONTIER" \
+  MODELS_DIR="$P_DIR" \
+  SPARKINFER_SCORE_REPS=0 SPARKINFER_GUARD_32K_REPS=0 \
+  SPARKINFER_GUARD_REPS=3 SPARKINFER_GUARD_512_REPS=3 SPARKINFER_GUARD_4K_REPS=3 \
   SPARKINFER_DIFFICULTY_BOOST=1 SPARKINFER_DIFFICULTY_REF="${P_DIFF_REF:-365.85}" \
   SPARKINFER_GUARD_128_BASELINE="${SPARKINFER_P_GUARD_128_BASELINE:-0}" \
   SPARKINFER_GUARD_512_BASELINE="${SPARKINFER_P_GUARD_512_BASELINE:-0}" \
   SPARKINFER_GUARD_4K_BASELINE="${SPARKINFER_P_GUARD_4K_BASELINE:-0}" \
-  SPARKINFER_GUARD_16K_BASELINE="${SPARKINFER_P_GUARD_16K_BASELINE:-0}" \
-  SPARKINFER_GUARD_32K_BASELINE="${SPARKINFER_P_GUARD_32K_BASELINE:-0}" \
-  SPARKINFER_LLAMA_128_BASELINE="${SPARKINFER_P_LLAMA_128_BASELINE:-365.85}" \
-  SPARKINFER_LLAMA_512_BASELINE="${SPARKINFER_P_LLAMA_512_BASELINE:-342.59}" \
-  SPARKINFER_LLAMA_4K_BASELINE="${SPARKINFER_P_LLAMA_4K_BASELINE:-292.99}" \
-  SPARKINFER_LLAMA_16K_BASELINE="${SPARKINFER_P_LLAMA_16K_BASELINE:-245.53}" \
-  SPARKINFER_LLAMA_32K_BASELINE="${SPARKINFER_P_LLAMA_32K_BASELINE:-192.62}")"
+  SPARKINFER_GUARD_16K_BASELINE=0 \
+  SPARKINFER_GUARD_32K_BASELINE=0 \
+  SPARKINFER_LLAMA_128_BASELINE="${SPARKINFER_P_LLAMA_128_BASELINE:-0}" \
+  SPARKINFER_LLAMA_512_BASELINE="${SPARKINFER_P_LLAMA_512_BASELINE:-0}" \
+  SPARKINFER_LLAMA_4K_BASELINE="${SPARKINFER_P_LLAMA_4K_BASELINE:-0}")"
 
 # Guard runs at frontier 0 (never scored). Its main-branch baselines make every context a
 # no-regression gate; the merge below fails the submission if any gate or the accuracy gate breaks.
 GUARD_JSON="$(run_model guard "$G_FILE" "$G_REPO" "$G_TOK" 0 \
+  MODELS_DIR="$G_DIR" \
   SPARKINFER_GUARD_128_BASELINE="${SPARKINFER_G_GUARD_128_BASELINE:-0}" \
   SPARKINFER_GUARD_512_BASELINE="${SPARKINFER_G_GUARD_512_BASELINE:-0}" \
   SPARKINFER_GUARD_4K_BASELINE="${SPARKINFER_G_GUARD_4K_BASELINE:-0}" \

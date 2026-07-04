@@ -391,15 +391,18 @@ def main():
             # Dual-model needs the Qwen3.6 GGUF too. HF (unsloth) — no Drive mirror; slow on some
             # hosts but cached in /workspace after the first pull. evaluate_dual's ensure_model is the
             # backstop if this times out. tokenizer.json comes from ensure_tokenizer at score time.
-            P36_PATH = "/workspace/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+            # Separate dir from Qwen3 — the two models have different tokenizers; evaluate_dual.sh's
+            # primary MODELS_DIR defaults to <guard dir>36 (i.e. /workspace/models -> /workspace/models36).
+            P36_DIR  = "/workspace/models36"
+            P36_PATH = f"{P36_DIR}/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
             P36_READY = "/tmp/sparkinfer_model36_ready"
             p36 = (
                 f"if [ -f '{P36_PATH}' ]; then touch '{P36_READY}' && echo cached; "
                 f"elif [ -f '{P36_READY}' ]; then echo already_running; "
-                f"else mkdir -p /workspace/models && rm -f '{P36_READY}'; "
+                f"else mkdir -p {P36_DIR} && rm -f '{P36_READY}'; "
                 f"nohup bash -c '"
                 f"  HF_HUB_DISABLE_XET=1 hf download unsloth/Qwen3.6-35B-A3B-GGUF "
-                f"       Qwen3.6-35B-A3B-UD-Q4_K_M.gguf --local-dir /workspace/models >>/tmp/dl36.log 2>&1 "
+                f"       Qwen3.6-35B-A3B-UD-Q4_K_M.gguf --local-dir {P36_DIR} >>/tmp/dl36.log 2>&1 "
                 f"  || curl -fL -C - https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
                 f"       -o {P36_PATH} >>/tmp/dl36.log 2>&1; "
                 f"  [ -f {P36_PATH} ] && touch {P36_READY}"
