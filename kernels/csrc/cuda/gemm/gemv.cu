@@ -96,6 +96,10 @@ __global__ void gemv_f32_sk_kernel(const __nv_bfloat16* __restrict__ x,
     }
 }
 template __global__ void gemv_f32_sk_kernel<float, 4>(const __nv_bfloat16*, const __nv_bfloat16*, float*, int, int);
+// bf16-output split-K instantiations for the dense projection GEMV (launch_gemv occupancy path).
+template __global__ void gemv_f32_sk_kernel<__nv_bfloat16, 2>(const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, int, int);
+template __global__ void gemv_f32_sk_kernel<__nv_bfloat16, 4>(const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, int, int);
+template __global__ void gemv_f32_sk_kernel<__nv_bfloat16, 8>(const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, int, int);
 
 // ---- quantized on-read GEMV (W = GGUF-native Q4_K/Q6_K [N,K]) -----------------
 // Dequantizes each 256-block in registers and dots with a full-precision (fp32)
@@ -602,7 +606,41 @@ static bool gemv_mmvq() {
     return v;
 }
 
+// split-K occupancy for the bf16-output dense GEMV. This path serves every Q8_0-decoded projection
+// weight (the Gated-DeltaNet attn_qkv/attn_gate/ssm_out on the 30 linear layers, the full-attn
+// attn_q/k/v/o, and the shared-expert gate/up/down GEMVs) -- collectively the largest slice of
+// Qwen3.6 decode. One-warp-per-row launches only N warps: a 2048-row projection under-fills the 170
+// SMs, and even the 8192-row in-projection sits at ~75% occupancy, so decode there runs below the
+// roofline. S warps then cooperate on each output row (each sums a 1/S stride of the K reduction,
+// S-way shared reduce), multiplying the warps in flight to ~16384 to fill the SMs -- the same
+// occupancy lever main already uses for the f32 router GEMV (gemv_f32_sk_kernel), extended to the
+// bf16 projections. Only the fp32 reduction order changes, so it is self-consistent with the
+// one-warp path (no top-1 regression). SPARKINFER_GEMV_SK=0 restores the one-warp kernel. K % 8 == 0.
+static int gemv_bf16_splitk() {
+    static int v = -1;
+    if (v < 0) { const char* e = getenv("SPARKINFER_GEMV_SK"); v = (e && e[0] == '0') ? 0 : 1; }
+    return v;
+}
 void launch_gemv(const void* x, const void* W, void* y, int N, int K, cudaStream_t stream) {
+    // pick the smallest split S so N*S ~ 16384 warps fill the SMs (larger S = more reduction
+    // overhead). N < 16384 covers every Qwen3.6 launch_gemv site (projections top out at 8192 rows);
+    // huge-N callers already saturate the grid and keep the one-warp path.
+    if (gemv_bf16_splitk() && (K & 7) == 0 && N < 16384) {
+        const auto* xp = reinterpret_cast<const __nv_bfloat16*>(x);
+        const auto* Wp = reinterpret_cast<const __nv_bfloat16*>(W);
+        auto* yp = reinterpret_cast<__nv_bfloat16*>(y);
+        if (N >= 8192) {          // S=2  -> up to 16384 warps
+            constexpr int S = 2, RPB = GEMV_WPB / S;
+            gemv_f32_sk_kernel<__nv_bfloat16, S><<<dim3((N + RPB - 1) / RPB), GEMV_WPB * 32, 0, stream>>>(xp, Wp, yp, N, K);
+        } else if (N >= 4096) {   // S=4
+            constexpr int S = 4, RPB = GEMV_WPB / S;
+            gemv_f32_sk_kernel<__nv_bfloat16, S><<<dim3((N + RPB - 1) / RPB), GEMV_WPB * 32, 0, stream>>>(xp, Wp, yp, N, K);
+        } else {                  // S=8  (small projections: shared-expert / k,v / ssm_out)
+            constexpr int S = 8, RPB = GEMV_WPB / S;
+            gemv_f32_sk_kernel<__nv_bfloat16, S><<<dim3((N + RPB - 1) / RPB), GEMV_WPB * 32, 0, stream>>>(xp, Wp, yp, N, K);
+        }
+        return;
+    }
     dim3 grid((N + GEMV_WPB - 1) / GEMV_WPB);
     gemv_kernel<__nv_bfloat16><<<grid, GEMV_WPB * 32, (size_t)K * sizeof(float), stream>>>(
         reinterpret_cast<const __nv_bfloat16*>(x), reinterpret_cast<const __nv_bfloat16*>(W),
