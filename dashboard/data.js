@@ -254,8 +254,8 @@ window.SPARKINFER = {
         "kernels"
       ],
       "label": "XL",
-      "tps": 261.3,
-      "delta_pct": 52.9,
+      "tps": 225.24,
+      "delta_pct": 31.0,
       "top1": 0.9724,
       "kl": 0.0108,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/229",
@@ -263,24 +263,24 @@ window.SPARKINFER = {
       "score_context": 128,
       "best_context_label": "128-context",
       "context_gains_pct": {
-        "128-context": 52.9,
-        "512-context": 51.9,
-        "4k-context": 48.1
+        "128-context": 31.0,
+        "512-context": 30.6,
+        "4k-context": 29.3
       },
       "regression_labels": [],
-      "ctx_128_tps": 261.3,
-      "ctx_512_tps": 258.18,
-      "ctx_4096_tps": 244.35,
+      "ctx_128_tps": 225.24,
+      "ctx_512_tps": 222.86,
+      "ctx_4096_tps": 212.42,
       "ctx_16384_tps": 0.0,
       "ctx_32768_tps": 0.0,
-      "guard_128_baseline": 170.84,
-      "guard_128_ratio": 1.5295012877546244,
+      "guard_128_baseline": 171.97,
+      "guard_128_ratio": 1.3097633308135141,
       "guard_128_pass": true,
-      "guard_512_baseline": 170.0,
-      "guard_512_ratio": 1.5187058823529411,
+      "guard_512_baseline": 170.64,
+      "guard_512_ratio": 1.3060243788091892,
       "guard_512_pass": true,
-      "guard_4k_baseline": 165.0,
-      "guard_4k_ratio": 1.480909090909091,
+      "guard_4k_baseline": 164.32,
+      "guard_4k_ratio": 1.2927215189873418,
       "guard_4k_pass": true,
       "guard_16k_baseline": 0.0,
       "guard_16k_ratio": 0.0,
@@ -1446,18 +1446,18 @@ window.SPARKINFER = {
       "label": "XL"
     },
     {
+      "name": "GDN fast AR state kernel",
+      "tps": 225.24,
+      "pr": 229,
+      "date": "2026-07-05",
+      "label": "XL"
+    },
+    {
       "name": "split-K bf16 dense GEMV",
       "tps": 254.72,
       "pr": 241,
       "date": "2026-07-06",
       "label": "L"
-    },
-    {
-      "name": "GDN fast AR state kernel",
-      "tps": 261.3,
-      "pr": 229,
-      "date": "2026-07-05",
-      "label": "XL"
     }
   ]
 };
