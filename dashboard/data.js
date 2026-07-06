@@ -138,6 +138,73 @@ window.SPARKINFER = {
   ],
   "prs": [
     {
+      "num": 264,
+      "title": "perf(qwen3.6): GDN state-update warp-per-column + overlap",
+      "areas": [
+        "kernels",
+        "runtime"
+      ],
+      "label": "REJECT",
+      "tps": 0,
+      "delta_pct": -1.0,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/264",
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0264-8e9a2bd"
+    },
+    {
+      "num": 260,
+      "title": "perf(qwen3.6): enable fast GDN kernel on shared-expert path",
+      "areas": [
+        "kernels",
+        "runtime"
+      ],
+      "label": "REJECT",
+      "tps": 168.94,
+      "delta_pct": -25.0,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/260",
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0260-2f143a3"
+    },
+    {
+      "num": 235,
+      "title": "perf(qwen3.6): GQA-8 flash decode for head_dim=256 (+4% @16k ctx)",
+      "areas": [
+        "kernels",
+        "runtime"
+      ],
+      "label": "REJECT",
+      "tps": 168.1,
+      "delta_pct": -25.4,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/235",
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0235-e1547c3"
+    },
+    {
+      "num": 233,
+      "title": "perf(qwen36): warp-grid GDN + decode pipelining + Q8_0 shared MMVQ",
+      "areas": [
+        "kernels",
+        "runtime"
+      ],
+      "label": "REJECT",
+      "tps": 275.52,
+      "delta_pct": 22.3,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/233",
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0233-1cb0054"
+    },
+    {
+      "num": 240,
+      "title": "perf(qwen3.6): fast Gated-DeltaNet AR kernel + conv/L2-norm and shared-expert GEMV fusions",
+      "areas": [
+        "kernels",
+        "runtime"
+      ],
+      "label": "XS",
+      "tps": 230.33,
+      "delta_pct": 3.4,
+      "top1": 0.96,
+      "kl": 0.0268,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/240",
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0240-d888f45"
+    },
+    {
       "num": 243,
       "title": "perf(moe): int8 dp4a MMVQ for the Q5_K expert down projection (+6.6% Qwen3.6 decode)",
       "areas": [
@@ -1119,63 +1186,6 @@ window.SPARKINFER = {
       "tps": 293.62,
       "delta_pct": 0.7,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/69"
-    },
-    {
-      "num": 65,
-      "title": "perf(moe): int8 dp4a MMVQ for the Q6_K MoE down (+4% decode)",
-      "areas": [
-        "kernels"
-      ],
-      "label": "XS",
-      "tps": 291.58,
-      "delta_pct": 2.2,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/65"
-    },
-    {
-      "num": 64,
-      "title": "perf(moe): __ldg quantized weight reads in expert FFN decode (+1.3%)",
-      "areas": [
-        "kernels"
-      ],
-      "label": "none",
-      "tps": 289.55,
-      "delta_pct": null,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/64"
-    },
-    {
-      "num": 63,
-      "title": "Parallelize flash-decode combine + n_splits=32 (+2.7% decode)",
-      "areas": [
-        "kernels",
-        "runtime"
-      ],
-      "label": "M",
-      "tps": 285.32,
-      "delta_pct": 2.2,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/63"
-    },
-    {
-      "num": 60,
-      "title": "perf(runtime): keep lm_head native-quantized, decode on-read (cut the largest decode read)",
-      "areas": [
-        "runtime"
-      ],
-      "label": "none",
-      "tps": 256.7,
-      "delta_pct": null,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/60"
-    },
-    {
-      "num": 59,
-      "title": "Adopt llama.cpp Q4_K mul_mat_vec_q for attention GEMVs (+9.3% decode, top-1 0.99)",
-      "areas": [
-        "kernels",
-        "runtime"
-      ],
-      "label": "L",
-      "tps": 279.11,
-      "delta_pct": 6.5,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/59"
     }
   ],
   "landed": [
