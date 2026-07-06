@@ -1607,12 +1607,12 @@ window.SPARKINFER = {
   "qwen36": {
     "model": "Qwen3.6-35B-A3B · UD-Q4_K_M",
     "arch": "hybrid Gated-DeltaNet + full-attn MoE · 256 experts top-8 · hd256",
-    "frontier_tps": 276.26,
+    "frontier_tps": 287.91,
     "baseline_tps": 23.03,
     "ref_name": "llama.cpp",
     "ref_tps": 275.81,
-    "token_match": 0.9741,
-    "kl": 0.0132,
+    "token_match": 0.9786,
+    "kl": 0.017,
     "note": "scored vs same-box main · GDN_FAST default ON · #241 & #243 merged",
     "ctx": [
       {
@@ -1663,6 +1663,13 @@ window.SPARKINFER = {
       "pr": 243,
       "date": "2026-07-06",
       "label": "M"
+    },
+    {
+      "name": "+15-20% decode — Q8 shared M",
+      "tps": 287.91,
+      "pr": 266,
+      "date": "2026-07-06",
+      "label": "L"
     }
   ]
 };
