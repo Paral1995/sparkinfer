@@ -783,9 +783,9 @@ def main():
     args = ap.parse_args()
     # Qwen3.6 same-box origin/main baselines (128/512/4k). Env-overridable; measured 2026-07 on RTX 5090.
     QWEN36_BASE = {
-        "128": float(os.environ.get("SPARKINFER_QWEN36_128", "170.84")),
-        "512": float(os.environ.get("SPARKINFER_QWEN36_512", "170.0")),
-        "4k":  float(os.environ.get("SPARKINFER_QWEN36_4K",  "165.0")),
+        "128": float(os.environ.get("SPARKINFER_QWEN36_128", "261.30")),
+        "512": float(os.environ.get("SPARKINFER_QWEN36_512", "258.18")),
+        "4k":  float(os.environ.get("SPARKINFER_QWEN36_4K",  "244.35")),
         "llama128": float(os.environ.get("SPARKINFER_QWEN36_LLAMA_128", "275.81")),
         "llama512": float(os.environ.get("SPARKINFER_QWEN36_LLAMA_512", "275.61")),
         "llama4k":  float(os.environ.get("SPARKINFER_QWEN36_LLAMA_4K",  "276.30")),
