@@ -137,6 +137,50 @@
   ],
   "prs": [
     {
+      "num": 267,
+      "title": "perf(moe): Q5_K fp split-K Qwen specialization + gate_up F=512 dispatch (+4.3% Qwen3.6 decode)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "none",
+      "tps": 252.23,
+      "delta_pct": 0.1,
+      "top1": 0.9706,
+      "kl": 0.0161,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/267",
+      "model": "Qwen3.6-35B-A3B",
+      "eval_mode": "longctx",
+      "score_context": 512,
+      "best_context_label": "512-context",
+      "context_gains_pct": {
+        "128-context": 0.12,
+        "512-context": 0.14,
+        "4k-context": 0.11
+      },
+      "regression_labels": [],
+      "ctx_128_tps": 255.02,
+      "ctx_512_tps": 252.23,
+      "ctx_4096_tps": 239.27,
+      "ctx_16384_tps": 0.0,
+      "ctx_32768_tps": 0.0,
+      "guard_128_baseline": 254.72,
+      "guard_128_ratio": 1.0012,
+      "guard_128_pass": true,
+      "guard_512_baseline": 251.87,
+      "guard_512_ratio": 1.0014,
+      "guard_512_pass": true,
+      "guard_4k_baseline": 239.0,
+      "guard_4k_ratio": 1.0011,
+      "guard_4k_pass": true,
+      "guard_16k_baseline": 0.0,
+      "guard_16k_ratio": 0.0,
+      "guard_16k_pass": true,
+      "guard_32k_baseline": 0.0,
+      "guard_32k_ratio": 0.0,
+      "guard_32k_pass": true,
+      "proof_url": "https://gittensor-ai-lab.github.io/sparkinfer-log/?run=0267-20df85f"
+    },
+    {
       "num": 243,
       "title": "perf(moe): int8 dp4a MMVQ for the Q5_K expert down projection (+6.6% Qwen3.6 decode)",
       "areas": [
@@ -1229,17 +1273,6 @@
       "tps": 313.14,
       "delta_pct": 5.3,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/70"
-    },
-    {
-      "num": 69,
-      "title": "Split-K the int8 dp4a MoE down GEMV (+3.4% decode)",
-      "areas": [
-        "kernels"
-      ],
-      "label": "none",
-      "tps": 293.62,
-      "delta_pct": 0.7,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/69"
     }
   ],
   "landed": [
