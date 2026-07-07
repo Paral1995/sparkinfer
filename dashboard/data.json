@@ -1735,24 +1735,24 @@
     "ref_tps": 275.81,
     "token_match": 0.9505,
     "kl": 0.0207,
-    "note": "scored vs same-box main · GDN_FAST default ON · #241 #243 #266 merged",
+    "note": "scored vs same-box main · GDN_FAST default ON · #241 #243 #266 #269 #279 merged",
     "ctx": [
       {
         "label": "128",
         "color": "#7B5DFF",
-        "tps": 380.65,
+        "tps": 391.17,
         "ref_tps": 275.81
       },
       {
         "label": "512",
         "color": "#0E8A16",
-        "tps": 374.79,
+        "tps": 384.70,
         "ref_tps": 275.61
       },
       {
         "label": "4k",
         "color": "#B8860B",
-        "tps": 360.62,
+        "tps": 369.78,
         "ref_tps": 276.3
       }
     ]
