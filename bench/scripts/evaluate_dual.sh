@@ -73,9 +73,12 @@ run_model() {  # $1=role  $2=file $3=repo $4=tok  $5=frontier  $6..=SPARKINFER_*
     | sed -n 's/^RESULT_JSON //p' | tail -1
 }
 
-# Difficulty-boost the PRIMARY label against Qwen3.6's own llama.cpp 128-tok reference (its moat
-# distance), mirroring the single-model eval. The guard is never scored, so no boost there.
-P_DIFF_REF="${SPARKINFER_P_LLAMA_128_BASELINE:-0}"
+# Difficulty anchor = Qwen3-30B llama.cpp 128-tok reference (365.85 default), NOT Qwen3.6's.
+# Qwen3.6 is artificially slow in llama.cpp (~275 tok/s, not yet optimized there), so using
+# its llama ref would make the frontier look "past-llama" prematurely and inflate difficulty_mult.
+# Qwen3-30B is the well-optimized reference model — use its llama.cpp speed as the maturity anchor.
+# To override: set SPARKINFER_DIFFICULTY_REF_OVERRIDE in the environment.
+P_DIFF_REF="${SPARKINFER_DIFFICULTY_REF_OVERRIDE:-}"
 
 # When the Qwen3.6 guard baselines aren't pre-set (bot passes 0), measure Qwen3.6 main
 # speed directly on the box — a quick 3-context decode sweep against the already-built
