@@ -304,15 +304,16 @@ int Qwen35Model::forward_token(int token_id, int position) {
     s.h_scalars[3] = seqlen;
     cu(cudaMemcpyAsync(s.d_scalars, s.h_scalars, 4 * sizeof(int), cudaMemcpyHostToDevice, st), "decode scalars");
 
-    // Depth-adaptive KV-split: keep 32 splits for the short-context sweet spot, then jump to
-    // the 128-split occupancy plateau on RTX 5090. The split grid is num_kv_heads*n_splits CTAs,
-    // so 64 splits still underfills mid-context decode; 128 improves 512/2k/4k. Past the 16k
-    // knee, use MAX_NSPLITS to keep each split's serial KV chunk bounded. Partials are sized for
-    // MAX_NSPLITS, and the online-softmax combine is exact for any split count (accuracy unchanged).
+    // Depth-adaptive KV-split: keep 32 splits for the short-context sweet spot, then
+    // scale to 128/256 splits as context grows. The split grid is num_kv_heads*n_splits
+    // CTAs — Qwen3.6 full-attention has only 2 KV-heads (hd=256), so 128 splits at 4k
+    // is just 256 CTAs; 256 splits at 8k+ doubles that. Per-block chunk stays in the
+    // 32-128 token range for good TILE=14 amortization.
+    // Partials are sized for MAX_NSPLITS; online-softmax combine is exact for any split count.
     if (s.adaptive_splits) {
         int want = 32;
-        if ((long)seqlen > 2L * s.split_chunk) want = 128;
-        if ((long)seqlen > 64L * s.split_chunk) want = Impl::MAX_NSPLITS;
+        if ((long)seqlen > 2L * s.split_chunk)  want = 128;
+        if ((long)seqlen > 32L * s.split_chunk) want = 256;
         if (want > Impl::MAX_NSPLITS) want = Impl::MAX_NSPLITS;
         if (want != s.n_splits) {                       // changed -> invalidate the captured graph
             s.n_splits = want;
@@ -677,11 +678,12 @@ int Qwen35Model::forward_token(int token_id, int position) {
         }
 
         if (w.gate_q) {   // GGUF fused: route, then dequant-on-read only the top_k experts
-            // Q8_0 router: half the weight read bandwidth vs bf16
-            if (w.router_w_type == 8)
-                kernels::launch_gemv_q_f32(s.hn, w.router_w, 8, s.mf_logits, c.n_experts, c.hidden, st);
-            else
-                kernels::launch_gemv_f32(s.hn, w.router_w, s.mf_logits, c.n_experts, c.hidden, st);  // router_w native [E,H]
+            // Fused router GEMV + top-k: single block computes x @ W^T and selects top-k
+            // in shared memory, eliminating the separate top-k kernel launch and its gap.
+            // SPARKINFER_ROUTER_FUSED=1 enables the experimental fused path.
+            static int router_fused = -1;
+            if (router_fused < 0) { const char* e = getenv("SPARKINFER_ROUTER_FUSED");
+                router_fused = (e && e[0] == '1') ? 1 : 0; }
             // The per-expert token counts only feed the batched-dispatch sort; the single-token
             // decode expert FFN reads ids/weights directly and never touches them. Zeroing that
             // buffer is a per-layer memset node in the replayed decode graph whose fixed cost far
@@ -690,9 +692,20 @@ int Qwen35Model::forward_token(int token_id, int position) {
             static int moe_counts = -1;
             if (moe_counts < 0) { const char* mc = getenv("SPARKINFER_MOE_COUNTS"); moe_counts = (mc && mc[0] == '1') ? 1 : 0; }
             if (moe_counts) cu(cudaMemsetAsync(s.mf_counts, 0, c.n_experts * sizeof(int), st), "mf counts");
-            kernels::launch_moe_router(s.mf_logits, s.mf_ids, s.mf_weights,
-                                       moe_counts ? s.mf_counts : nullptr,
-                                       1, c.n_experts, c.top_k, 1, st);
+            if (router_fused && c.n_experts == 256 && c.hidden % 8 == 0) {
+                kernels::launch_router_gemv_topk_fused(s.hn, w.router_w,
+                    s.mf_ids, s.mf_weights, moe_counts ? s.mf_counts : nullptr,
+                    c.n_experts, c.hidden, c.top_k, 1, st);
+            } else {
+                // Q8_0 router: half the weight read bandwidth vs bf16
+                if (w.router_w_type == 8)
+                    kernels::launch_gemv_q_f32(s.hn, w.router_w, 8, s.mf_logits, c.n_experts, c.hidden, st);
+                else
+                    kernels::launch_gemv_f32(s.hn, w.router_w, s.mf_logits, c.n_experts, c.hidden, st);
+                kernels::launch_moe_router(s.mf_logits, s.mf_ids, s.mf_weights,
+                                           moe_counts ? s.mf_counts : nullptr,
+                                           1, c.n_experts, c.top_k, 1, st);
+            }
             kernels::launch_moe_expert_ffn_q4k(s.hn, w.gate_q, w.up_q, w.down_q,
                                                w.gate_qtype, w.up_qtype, w.down_qtype,
                                                s.mf_ids, s.mf_weights, s.routed, s.mf_h, s.mf_out,
