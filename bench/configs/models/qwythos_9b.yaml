@@ -1,5 +1,5 @@
-# Qwythos-9B (Qwen3.5-9B fine-tune) — miner optimization target.
-# Guards: Qwen3.6-35B-A3B + Qwen3-30B-A3B must not regress (evaluate_triple.sh).
+# Qwythos-9B (Qwen3.5-9B) — bidirectional eval with Qwen3.6 (evaluate_bidir.sh).
+# Guards: Qwen3.6-35B-A3B must not regress when optimizing Qwen3.5, and vice versa.
 #
 # HF: https://huggingface.co/empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF
 # Architecture: qwen35 (dense MoE 9B, 1M YaRN context in llama.cpp)
@@ -26,13 +26,10 @@ guards:
   - model: Qwen3.6-35B-A3B
     file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
     dir: /workspace/models36
-  - model: Qwen3-30B-A3B
-    file: Qwen3-30B-A3B-Q4_K_M.gguf
-    dir: /workspace/models
 
 # YaRN enables up to 1M in llama.cpp; probe_max_ctx_llama.sh measured RTX 5090 (32GB) ceiling.
 context:
-  eval_sweep: [128, 512, 4096, 16384, 32768]
+  eval_sweep: [128, 512, 4096]
   probe_candidates: [32768, 65536, 131072, 262144, 524288, 786432, 819200, 851968, 1048576]
   rtx5090_max_ctx_llama:
     Q4_K_M: 819200   # ~800k tokens
