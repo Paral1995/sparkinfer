@@ -104,6 +104,27 @@ The on-box orchestrator is `bench/scripts/evaluate_dual.sh` (builds once, calls 
 `evaluate.sh` twice via `SI_SKIP_BUILD=1`, merges). Qwen3.6 runs the same UD-Q4_K_M GGUF the runtime
 now loads by default (mixed Q5_K experts).
 
+## Triple-model scoring: Qwythos-9B primary, Qwen3.6 + Qwen3-30B guards
+
+`--triple` (or `TRIPLE=1` in `.env.eval`) scores **Qwythos-9B** (Qwen3.5-9B, miner optimization target)
+and guards **both** Qwen3.6-35B-A3B and Qwen3-30B-A3B against no-regression in one build.
+
+```
+build once ─► PRIMARY  Qwythos-9B (Q4_K_M|Q8_0|BF16) ─► eval:<LABEL>
+           ├► GUARD36 Qwen3.6  : 5-context speed + accuracy ─► must NOT regress
+           └► GUARD3  Qwen3-30B : 5-context speed + accuracy ─► must NOT regress
+```
+
+- `PRIMARY_QUANT` selects the Qwythos GGUF: `Q4_K_M` (default), `Q8_0`, or `BF16`.
+- Models live in `/workspace/models35` (Qwythos), `/workspace/models36` (Qwen3.6), `/workspace/models` (Qwen3-30B).
+- Orchestrator: `bench/scripts/evaluate_triple.sh`.
+- Max context on RTX 5090 (32 GB): see `bench/results/qwythos_max_ctx_rtx5090.json` (`probe_max_ctx_llama.sh` until sparkinfer loads dense Qwen3.5-9B GGUFs).
+
+```bash
+python eval/vast_eval.py --ssh HOST:PORT --triple --primary-quant Q4_K_M --ref main
+./eval/run_bot.sh --triple
+```
+
 ## Verdict (stdout)
 
 ```json

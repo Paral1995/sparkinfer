@@ -350,13 +350,18 @@ def render(res, oid):
     # verdict can REJECT on the GUARD even when every scored-model gate passes, so the guard's own
     # per-context results must be shown — otherwise the table reads "all pass" next to a REJECT.
     guard = res.get("guard") or {}
+    guard36 = res.get("guard36") or {}
+    guard3 = res.get("guard3") or {}
     scored_model = res.get("model")
-    dual = bool(guard) and bool(scored_model)
-    short = scored_model.split("-")[0] if scored_model else ""       # "Qwen3.6"
+    dual = bool(guard) and bool(scored_model) and not (guard36 or guard3)
+    triple = bool(guard36 or guard3) and bool(scored_model)
+    short = scored_model.split("(")[0].strip() if scored_model else ""
+    if not short and scored_model:
+        short = scored_model.split("-")[0]
     gname = res.get("guard_model", "Qwen3-30B")
     rows = [f"| **label** | `eval:{label}` |",
-            f"| scored decode ({res.get('score_context', 128)} ctx{f' · {ctx_label}' if ctx_label else ''}{f' · {short}' if dual else ''}) | {res.get('tps','?')} tok/s |",
-            f"| correctness{f' ({short} vs llama.cpp)' if dual else ''} | top-1 {res.get('top1',0)*100:.1f}% · KL {res.get('kl','?')} |"]
+            f"| scored decode ({res.get('score_context', 128)} ctx{f' · {ctx_label}' if ctx_label else ''}{f' · {short}' if dual or triple else ''}) | {res.get('tps','?')} tok/s |",
+            f"| correctness{f' ({short} vs llama.cpp)' if dual or triple else ''} | top-1 {res.get('top1',0)*100:.1f}% · KL {res.get('kl','?')} |"]
     # scored-model per-context no-regression gates — SKIP contexts not measured (tps 0/None) so a
     # deliberately-skipped 16k/32k never renders a misleading "0.0 tok/s · pass".
     for key, gkey, bkey, lbl in [("ctx_128_tps", "guard_128_pass", "guard_128_baseline", "128-token"),
@@ -369,7 +374,7 @@ def render(res, oid):
             continue
         gate = "pass" if res.get(gkey, True) else "fail"
         base = res.get(bkey) or _GUARD_BASE_FALLBACK.get(bkey, 0)
-        rows.append(f"| {f'{short} ' if dual else ''}{lbl} no-regression gate | {tps} tok/s"
+        rows.append(f"| {f'{short} ' if dual or triple else ''}{lbl} no-regression gate | {tps} tok/s"
                     f"{f' vs main {base} tok/s' if base else ''} · {gate} |")
     if res.get("ctx_2048_tps") is not None and res.get("ctx_512_tps") is None:
         gate = "pass" if res.get("guard_2k_pass", True) else "fail"
@@ -389,6 +394,22 @@ def render(res, oid):
             if not tps:
                 continue
             rows.append(f"| {gname} guard — {lbl} | {tps} tok/s · {'pass' if guard.get(gkey, True) else '**fail**'} |")
+    if triple:
+        for gblock, gtitle in [(guard36, res.get("guard36_model", "Qwen3.6")),
+                               (guard3, res.get("guard3_model", "Qwen3-30B"))]:
+            if not gblock:
+                continue
+            acc_ok = "pass" if gblock.get("accuracy_ok", True) else "**FAIL**"
+            rows.append(f"| **{gtitle} guard — accuracy** | top-1 {gblock.get('top1',0)*100:.1f}% · KL {gblock.get('kl','?')} · {acc_ok} |")
+            for key, gkey, lbl in [("ctx_128_tps", "guard_128_pass", "128-token"),
+                                   ("ctx_512_tps", "guard_512_pass", "512-context"),
+                                   ("ctx_4096_tps", "guard_4k_pass", "4k-context"),
+                                   ("ctx_16384_tps", "guard_16k_pass", "16k-context"),
+                                   ("ctx_32768_tps", "guard_32k_pass", "32k-context")]:
+                tps = gblock.get(key)
+                if not tps:
+                    continue
+                rows.append(f"| {gtitle} guard — {lbl} | {tps} tok/s · {'pass' if gblock.get(gkey, True) else '**fail**'} |")
     if res.get("regression_labels") or res.get("guard_regression_labels"):
         allregs = (res.get("regression_labels") or []) + (res.get("guard_regression_labels") or [])
         rows.append(f"| regressions | {', '.join(allregs)} |")
@@ -870,6 +891,11 @@ def main():
     # not a passed-in frontier number — so the gain is hardware-independent and always current.
     ap.add_argument("--dual", action="store_true",
                     help="score Qwen3.6 (primary) + guard Qwen3-30B (no-regression) via evaluate_dual.sh")
+    ap.add_argument("--triple", action="store_true",
+                    help="score Qwythos-9B (primary) + guard Qwen3.6 + Qwen3-30B via evaluate_triple.sh")
+    ap.add_argument("--primary-quant", default=os.environ.get("PRIMARY_QUANT", "Q4_K_M"),
+                    choices=["Q4_K_M", "Q8_0", "BF16"],
+                    help="[--triple] Qwythos GGUF quant (default Q4_K_M)")
     ap.add_argument("--polaris", action="store_true",
                     help="generate a Polaris verifiable receipt for each eval")
     ap.add_argument("--only-pr", type=int, default=0,
@@ -877,6 +903,8 @@ def main():
     ap.add_argument("--reeval", action="store_true",
                     help="re-run eval even if this commit was already graded (use with --only-pr)")
     args = ap.parse_args()
+    if args.triple and args.dual:
+        ap.error("--triple and --dual are mutually exclusive")
     if not ssh_box_enabled() and not args.instance:
         ap.error("--instance is required for vast.ai transport (or set EVAL_TRANSPORT=ssh + EVAL_SSH_HOST)")
     if ssh_box_enabled():
@@ -894,6 +922,16 @@ def main():
         "llama128": float(os.environ.get("SPARKINFER_QWEN36_LLAMA_128", "275.81")),
         "llama512": float(os.environ.get("SPARKINFER_QWEN36_LLAMA_512", "275.61")),
         "llama4k":  float(os.environ.get("SPARKINFER_QWEN36_LLAMA_4K",  "276.30")),
+    }
+    QWYTHOS_BASE = {
+        "128": float(os.environ.get("SPARKINFER_QWYTHOS_128", "0")),
+        "512": float(os.environ.get("SPARKINFER_QWYTHOS_512", "0")),
+        "4k":  float(os.environ.get("SPARKINFER_QWYTHOS_4K",  "0")),
+        "16k": float(os.environ.get("SPARKINFER_QWYTHOS_16K", "0")),
+        "32k": float(os.environ.get("SPARKINFER_QWYTHOS_32K", "0")),
+        "llama128": float(os.environ.get("QWEN35_9B_LLAMA_128", "0")),
+        "llama512": float(os.environ.get("QWEN35_9B_LLAMA_512", "0")),
+        "llama4k":  float(os.environ.get("QWEN35_9B_LLAMA_4K",  "0")),
     }
 
     # --- Polaris verifiable compute ---
@@ -1154,9 +1192,9 @@ def main():
               f"Aborting; NO PRs graded. Re-run on a warm, stable box.")
         return
 
-    # Dual mode: bench Qwen3.6 main directly on the box — the same build the Qwen3-30B
+    # Dual/triple mode: bench model mains directly on the box — the same build the Qwen3-30B
     # baseline already verified. No accuracy gate, just a 5-context decode sweep.
-    if args.dual and _vast_sh:
+    if (args.dual or args.triple) and _vast_sh:
         ssh_ep = ssh_box_endpoint()
         if ssh_ep:
             host, port = ssh_ep
@@ -1167,37 +1205,43 @@ def main():
             host, port = _vast_endpoint(info) if info else (None, None)
         else:
             host = port = None
-        if host and port:
-            M36 = "/workspace/models36/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
-            B36 = "/root/sparkinfer/build/runtime/qwen3_gguf_bench"
-            tps128 = tps512 = tps4k = tps16k = tps32k = 0.0
-            for label, ctx in [("128", 0), ("512", 512), ("4k", 4096),
-                               ("16k", 16384), ("32k", 32768)]:
-                cmd = f"export PATH=/usr/local/cuda/bin:$PATH; {B36} '{M36}' 128 {ctx}"
+
+        def _ctx_sweep(host, port, gguf, label, store):
+            B = "/root/sparkinfer/build/runtime/qwen3_gguf_bench"
+            tps = {}
+            for lbl, ctx in [("128", 0), ("512", 512), ("4k", 4096),
+                             ("16k", 16384), ("32k", 32768)]:
+                cmd = f"export PATH=/usr/local/cuda/bin:$PATH; {B} '{gguf}' 128 {ctx}"
                 r = _vast_sh(host, port, cmd, timeout=600)
                 m = re.search(r"decode\s+tg\s*:\s*([0-9.]+)", r.stdout + r.stderr)
-                if m: tps = float(m.group(1))
-                else: tps = 0.0
-                if label == "128": tps128 = tps
-                elif label == "512": tps512 = tps
-                elif label == "4k":  tps4k  = tps
-                elif label == "16k": tps16k = tps
-                else:               tps32k = tps
-                print(f"    ctx={label} tps={tps}")
-            if tps128 > 0:
-                QWEN36_BASE["128"] = tps128
-                QWEN36_BASE["512"] = tps512 if tps512 > 0 else round(tps128 * 0.98, 2)
-                QWEN36_BASE["4k"]  = tps4k  if tps4k  > 0 else round(tps128 * 0.93, 2)
-                QWEN36_BASE["16k"] = tps16k if tps16k > 0 else QWEN36_BASE["16k"]
-                QWEN36_BASE["32k"] = tps32k if tps32k > 0 else QWEN36_BASE["32k"]
-                print(f"  Qwen3.6 same-box main: 128={tps128} 512={QWEN36_BASE['512']} "
-                      f"4k={QWEN36_BASE['4k']} 16k={QWEN36_BASE['16k']} 32k={QWEN36_BASE['32k']} tok/s")
+                tps[lbl] = float(m.group(1)) if m else 0.0
+                print(f"    [{label}] ctx={lbl} tps={tps[lbl]}")
+            if tps.get("128", 0) > 0:
+                store["128"] = tps["128"]
+                store["512"] = tps["512"] if tps["512"] > 0 else round(tps["128"] * 0.98, 2)
+                store["4k"]  = tps["4k"]  if tps["4k"]  > 0 else round(tps["128"] * 0.93, 2)
+                store["16k"] = tps["16k"] if tps["16k"] > 0 else store.get("16k", 0)
+                store["32k"] = tps["32k"] if tps["32k"] > 0 else store.get("32k", 0)
+                print(f"  {label} same-box main: 128={store['128']} 512={store['512']} "
+                      f"4k={store['4k']} 16k={store['16k']} 32k={store['32k']} tok/s")
             else:
-                print(f"  Qwen3.6 bench failed — using defaults: "
-                      f"{QWEN36_BASE['128']}/{QWEN36_BASE['512']}/{QWEN36_BASE['4k']}/"
-                      f"{QWEN36_BASE['16k']}/{QWEN36_BASE['32k']}")
+                print(f"  {label} bench failed — using config defaults")
+
+        if host and port:
+            if args.dual or args.triple:
+                _ctx_sweep(host, port, "/workspace/models36/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+                           "Qwen3.6", QWEN36_BASE)
+            if args.triple:
+                qmap = {
+                    "Q4_K_M": "Qwythos-9B-Claude-Mythos-5-1M-Q4_K_M.gguf",
+                    "Q8_0":   "Qwythos-9B-Claude-Mythos-5-1M-Q8_0.gguf",
+                    "BF16":   "Qwythos-9B-Claude-Mythos-5-1M-BF16.gguf",
+                }
+                qfile = qmap[args.primary_quant]
+                _ctx_sweep(host, port, f"/workspace/models35/{qfile}",
+                           f"Qwythos ({args.primary_quant})", QWYTHOS_BASE)
         else:
-            print(f"  could not reach eval box for Qwen3.6 bench — using config defaults")
+            print(f"  could not reach eval box for model bench — using config defaults")
 
     # Run all pending evals on the SAME instance: pass --keep so vast_eval.py never stops/destroys
     # the box mid-queue. The bot stops the instance once after ALL PRs finish (or if the instance
@@ -1221,7 +1265,24 @@ def main():
                "--guard-16k-baseline", str(run_guard_16k),
                "--guard-32k-baseline", str(run_guard_32k),
                "--keep"]
-        if args.dual:
+        if args.triple:
+            cmd[cmd.index("--keep"):cmd.index("--keep")] = [
+                "--triple",
+                "--primary-quant", args.primary_quant,
+                "--p-guard-128-baseline", str(QWYTHOS_BASE["128"]),
+                "--p-guard-512-baseline", str(QWYTHOS_BASE["512"]),
+                "--p-guard-4k-baseline",  str(QWYTHOS_BASE["4k"]),
+                "--p-guard-16k-baseline", str(QWYTHOS_BASE["16k"]),
+                "--p-guard-32k-baseline", str(QWYTHOS_BASE["32k"]),
+                "--p-llama-128-baseline", str(QWYTHOS_BASE["llama128"]),
+                "--p-llama-512-baseline", str(QWYTHOS_BASE["llama512"]),
+                "--p-llama-4k-baseline",  str(QWYTHOS_BASE["llama4k"]),
+                "--g36-guard-128-baseline", str(QWEN36_BASE["128"]),
+                "--g36-guard-512-baseline", str(QWEN36_BASE["512"]),
+                "--g36-guard-4k-baseline",  str(QWEN36_BASE["4k"]),
+                "--g36-guard-16k-baseline", str(QWEN36_BASE["16k"]),
+                "--g36-guard-32k-baseline", str(QWEN36_BASE["32k"])]
+        elif args.dual:
             # Qwen3.6 scored (128/512/4k); the --guard-*-baseline above become the Qwen3-30B guard.
             # Scoring base = same-box origin/main baseline (the guard baselines), not a passed-in frontier.
             cmd[cmd.index("--keep"):cmd.index("--keep")] = [
