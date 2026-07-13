@@ -145,6 +145,12 @@ struct Qwen35Model::Impl {
     bool adaptive_splits = true;              // scale n_splits with seq_len (decode graph re-captured on change)
     int split_chunk = 256;                    // target serial KV per split (SPARKINFER_SPLIT_CHUNK)
     float *fa_m = nullptr, *fa_l = nullptr, *fa_acc = nullptr;
+    // Sink + sliding-window sparse-KV (SPARKINFER_SPARSE_KV). Per-kv_head block list scratch.
+    int*   sparse_sel = nullptr;
+    int    sparse_budget = 0;      // max sel slots = 1 + window
+    int    sparse_window = 256;    // recent window in KV blocks (16 tokens/block)
+    int    sparse_min_ctx = 8192;
+    bool   graph_sparse = false;
     // pre-quantized Q8_1 activation (computed once per projection input, shared across Q/K/V)
     signed char* aq8 = nullptr; float *aq8_d = nullptr, *aq8_s = nullptr;
     bool use_pq = true;   // SPARKINFER_PQ=0 disables the pre-quantized GEMV path
@@ -253,6 +259,22 @@ Qwen35Model::Qwen35Model(const Qwen35Config& cfg, KVCacheManager* kv, moe::MoEEn
     p_->fa_m   = p_->alloc<float>(fa_n);
     p_->fa_l   = p_->alloc<float>(fa_n);
     p_->fa_acc = p_->alloc<float>(fa_n * cfg.head_dim);
+    if (const char* se = getenv("SPARKINFER_SPARSE_KV")) {
+        if (se[0] && se[0] != '0' && cfg.head_dim == 256 && cfg.n_q_heads == cfg.n_kv_heads * 4) {
+            p_->sparse_window = 256;
+            if (const char* w = getenv("SPARKINFER_SPARSE_WINDOW")) { int v = atoi(w); if (v > 0) p_->sparse_window = v; }
+            // Legacy aliases from the Quest prototype (blocks, not tokens).
+            if (const char* rw = getenv("SPARKINFER_SPARSE_RECENT")) { int v = atoi(rw); if (v > 0) p_->sparse_window = v; }
+            if (const char* b = getenv("SPARKINFER_SPARSE_BUDGET")) {
+                int v = atoi(b); if (v > 1) p_->sparse_window = v - 1;   // budget included sink
+            }
+            if (const char* mc = getenv("SPARKINFER_SPARSE_MIN_CTX")) { int v = atoi(mc); if (v > 0) p_->sparse_min_ctx = v; }
+            p_->sparse_budget = 1 + p_->sparse_window;
+            p_->sparse_sel = p_->alloc<int>((size_t)cfg.n_kv_heads * p_->sparse_budget);
+            fprintf(stderr, "[sparse-kv] sliding-window: window=%d blocks (%d tokens) min_ctx=%d\n",
+                    p_->sparse_window, p_->sparse_window * kv->block_size(), p_->sparse_min_ctx);
+        }
+    }
     const int kmax = (p_->qdim > H) ? p_->qdim : H;          // largest projection input dim
     p_->aq8   = p_->alloc<signed char>(kmax);
     p_->aq8_d = p_->alloc<float>(kmax >> 5);
@@ -293,6 +315,7 @@ Qwen35Model::~Qwen35Model() {
     cudaFree(p_->sx_h); cudaFree(p_->sx_q8);
     cudaFree(p_->mf_ids); cudaFree(p_->mf_counts); cudaFree(p_->mf_rc);
     cudaFree(p_->fa_m); cudaFree(p_->fa_l); cudaFree(p_->fa_acc);
+    cudaFree(p_->sparse_sel);
     cudaFree(p_->aq8); cudaFree(p_->aq8_d); cudaFree(p_->aq8_s); cudaFree(p_->aq81);
     if (p_->graph_ready) { cudaGraphExecDestroy(p_->cu_exec); cudaGraphDestroy(p_->cu_graph); }
     cudaEventDestroy(p_->ev_qkv); cudaEventDestroy(p_->ev_k); cudaEventDestroy(p_->ev_v);
@@ -396,6 +419,14 @@ int Qwen35Model::forward_token(int token_id, int position) {
         s.cu_exec = nullptr;
         s.cu_graph = nullptr;
         s.graph_ready = false;
+    }
+    const bool sparse_avail = s.sparse_budget > 0 && s.kv->int8_kv() &&
+                              c.head_dim == 256 && c.n_q_heads == c.n_kv_heads * 4;
+    const bool sparse_on = sparse_avail && seqlen >= s.sparse_min_ctx;
+    if (s.graph_ready && s.graph_sparse != sparse_on) {
+        cu(cudaGraphExecDestroy(s.cu_exec), "sparse recapture destroy exec");
+        cu(cudaGraphDestroy(s.cu_graph), "sparse recapture destroy graph");
+        s.cu_exec = nullptr; s.cu_graph = nullptr; s.graph_ready = false;
     }
     if (c.hybrid && position == 0) {
         cu(cudaMemsetAsync(s.lin_state, 0,
@@ -709,6 +740,16 @@ int Qwen35Model::forward_token(int token_id, int position) {
                                       && (H == 2048 || H == 4096)
                                       && (w.wo_type == 12 || w.wo_type == 8) && (s.qdim % 32 == 0);
             const bool emit_attn_q8 = !w.q_has_gate && s.use_attnin && s.gguf && s.use_pq && s.use_llama && w.wo_type == 12;
+            if (sparse_on) {
+                kernels::launch_fa_kv_window_select(s.d_seqlen, s.sparse_sel, c.n_kv_heads,
+                    s.kv->block_size(), s.sparse_budget, s.sparse_window, st);
+                kernels::launch_flash_decode_split_sparse(s.q, kpool, vpool, btable, s.d_seqlen,
+                    s.sparse_sel, s.fa_m, s.fa_l, s.fa_acc, c.n_q_heads, c.n_kv_heads, c.head_dim,
+                    s.kv->block_size(), s.kv->max_blocks_per_seq(), s.n_splits, s.sparse_budget,
+                    1.f / sqrtf((float)c.head_dim), kscale, vscale, st);
+                kernels::launch_fa_combine_hd256(s.fa_m, s.fa_l, s.fa_acc, s.attn, c.n_q_heads,
+                    s.n_splits, (emit_attn_q8 || attn_gate_q8) ? s.aq81 : nullptr, st);
+            } else {
             kernels::launch_flash_decode_split(s.q, kpool, vpool, btable, s.d_seqlen, s.attn,
                                                s.fa_m, s.fa_l, s.fa_acc, 1, c.n_q_heads, c.n_kv_heads, c.head_dim,
                                                s.kv->block_size(), s.kv->max_blocks_per_seq(), s.n_splits,
@@ -716,6 +757,7 @@ int Qwen35Model::forward_token(int token_id, int position) {
                                                (emit_attn_q8 || attn_gate_q8) ? s.aq81 : nullptr, seqlen,
                                                kscale, vscale, kv8 ? 1 : 0,
                                                attn_gate_q8 ? s.qgate : nullptr);
+            }
             if (w.q_has_gate && !attn_gate_q8)
                 kernels::launch_qwen36_mul_sigmoid(s.attn, s.qgate, s.qdim, st);
 
@@ -968,6 +1010,7 @@ int Qwen35Model::forward_token(int token_id, int position) {
     cu(cudaGraphInstantiate(&s.cu_exec, s.cu_graph, 0), "graph instantiate");
     s.graph_ready = true;
     s.graph_attn_mode = attn_graph_mode;
+    s.graph_sparse = sparse_on;
     static int graph_dbg = -1;
     if (graph_dbg < 0) {
         const char* e = getenv("SPARKINFER_GRAPH_DEBUG");
@@ -975,8 +1018,8 @@ int Qwen35Model::forward_token(int token_id, int position) {
     }
     if (graph_dbg) {
         const int mma_chunk = (s.n_splits > 0) ? (seqlen + s.n_splits - 1) / s.n_splits : 0;
-        fprintf(stderr, "[graph] capture pos=%d seqlen=%d n_splits=%d attn_mode=%d mma_chunk=%d\n",
-                position, seqlen, s.n_splits, attn_graph_mode, mma_chunk);
+        fprintf(stderr, "[graph] capture pos=%d seqlen=%d n_splits=%d attn_mode=%d mma_chunk=%d sparse=%d\n",
+                position, seqlen, s.n_splits, attn_graph_mode, mma_chunk, sparse_on ? 1 : 0);
     }
     cu(cudaGraphLaunch(s.cu_exec, st), "graph launch (first)");
 
