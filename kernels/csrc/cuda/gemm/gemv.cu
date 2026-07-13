@@ -829,6 +829,8 @@ __global__ void si_attn_qkv_mmvq_q4k_kernel(
 }
 template __global__ void si_attn_qkv_mmvq_q4k_kernel<__nv_bfloat16, 8>(const si_block_q8_1*, const unsigned char*,
     const unsigned char*, const unsigned char*, __nv_bfloat16*, __nv_bfloat16*, __nv_bfloat16*, int, int, int);
+template __global__ void si_attn_qkv_mmvq_q4k_kernel<__nv_bfloat16, 16>(const si_block_q8_1*, const unsigned char*,
+    const unsigned char*, const unsigned char*, __nv_bfloat16*, __nv_bfloat16*, __nv_bfloat16*, int, int, int);
 
 // ===== faithful llama Q6_K mmvq for the fp32-path GEMVs (attn-V upgrades + LM head) =====
 // Same 4-warp-per-row structure as the Q4_K mmvq, with vec_dot_q6_K_q8_1 (coalesced
@@ -1303,6 +1305,12 @@ void launch_attn_qkv_mmvq_q4k(const void* q81,
     const si_block_q8_1* q = reinterpret_cast<const si_block_q8_1*>(q81);
     if (K == 2048)
         si_attn_qkv_mmvq_q4k_kernel<__nv_bfloat16, 8><<<total, 4 * 32, 0, stream>>>(
+            q, reinterpret_cast<const unsigned char*>(Wq), reinterpret_cast<const unsigned char*>(Wk),
+            reinterpret_cast<const unsigned char*>(Wv),
+            reinterpret_cast<__nv_bfloat16*>(yq), reinterpret_cast<__nv_bfloat16*>(yk),
+            reinterpret_cast<__nv_bfloat16*>(yv), Nq, Nk, Nv);
+    else if (K == 4096)
+        si_attn_qkv_mmvq_q4k_kernel<__nv_bfloat16, 16><<<total, 4 * 32, 0, stream>>>(
             q, reinterpret_cast<const unsigned char*>(Wq), reinterpret_cast<const unsigned char*>(Wk),
             reinterpret_cast<const unsigned char*>(Wv),
             reinterpret_cast<__nv_bfloat16*>(yq), reinterpret_cast<__nv_bfloat16*>(yk),

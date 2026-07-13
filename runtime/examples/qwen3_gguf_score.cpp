@@ -49,10 +49,9 @@ int main(int argc, char** argv) {
     // int8 KV is the Qwen3-MoE head_dim=128 tensor-core path; Qwen3.6 (hybrid, gated head_dim=256)
     // writes bf16 KV. Scoring with int8 KV on the hybrid model corrupts attention -> false accuracy
     // divergence vs llama.cpp. Mirror generate.cpp: bf16 KV for hybrid.
-    // Context-adaptive int8 KV for the hybrid (>= 8k fed length) so the accuracy gate scores the int8
-    // path exactly where the bench uses it; short contexts + non-hybrid keep the prior default.
+    // Context-adaptive int8 KV for hybrid (>= 4k fed length) so accuracy gate matches bench at 4k.
     { const char* e = getenv("SPARKINFER_KV_INT8");
-      kvc.int8_kv = e ? (e[0] != '0') : (cfg.hybrid ? ((argc - 3) >= 8192) : true); }
+      kvc.int8_kv = e ? (e[0] != '0') : (cfg.hybrid ? ((argc - 3) >= 4096) : true); }
     const size_t epb = (size_t)16 * cfg.n_kv_heads * cfg.head_dim;
     const size_t blocks = (cfg.max_seq + 15) / 16 + 8;
     sparkinfer::KVCacheManager kv(kvc, (size_t)cfg.n_layers * 2 * epb * 2 * blocks);

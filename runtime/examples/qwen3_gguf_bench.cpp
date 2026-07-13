@@ -58,15 +58,12 @@ int main(int argc, char** argv) {
     auto rt = sparkinfer::Runtime::create({}); rt->initialize();
     sparkinfer::KVCacheConfig kvc;
     kvc.num_layers=cfg.n_layers; kvc.num_kv_heads=cfg.n_kv_heads; kvc.head_dim=cfg.head_dim; kvc.block_size=16;
-    // int8 KV pays off only once the halved long-context read outweighs its fixed per-token write cost,
-    // so enable it context-adaptively (>= 8k) by default; short contexts stay bf16 (no regression).
+    // int8 KV pays off once the halved long-context KV read outweighs per-token write cost.
+    // Enable context-adaptively (>= 4k) by default; 128/512 stay bf16 (no short-ctx regression).
     // SPARKINFER_KV_INT8=1/0 forces it on/off regardless.
-    // int8 KV is the Qwen3-MoE head_dim=128 path; the hybrid Qwen3.6 (gated head_dim=256) writes bf16 KV.
-    // Context-adaptive int8 KV (>= 8k) for both the Qwen3-MoE hd128 and the Qwen3.6 hybrid hd256
-    // full-attn layers (now that hd256 has a correct int8 tensor-core flash-decode + int8 partial-RoPE
-    // append). Short contexts stay bf16 (byte-identical to main); the win is long-context KV read.
+    // Context-adaptive int8 KV (>= 4k) for hybrid hd256 full-attn (int8 flash-decode + partial-RoPE).
     { const char* e8 = getenv("SPARKINFER_KV_INT8");
-      kvc.int8_kv = e8 ? (e8[0] != '0') : (context_tokens >= 8192); }
+      kvc.int8_kv = e8 ? (e8[0] != '0') : (context_tokens >= 4096); }
     const size_t epb=(size_t)16*cfg.n_kv_heads*cfg.head_dim, blocks=(cfg.max_seq+15)/16+8;
     sparkinfer::KVCacheManager kv(kvc, (size_t)cfg.n_layers*2*epb*2*blocks);
     sparkinfer::moe::MoEConfig mc;

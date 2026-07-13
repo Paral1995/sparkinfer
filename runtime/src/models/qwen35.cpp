@@ -347,10 +347,18 @@ int Qwen35Model::forward_token(int token_id, int position) {
         // every measured point (+2.8% @16k, +4.9% @32k, +3.2% @8k, tied @4k), confirmed
         // byte-safe (online-softmax combine is exact for any split count; verified top-1=100%,
         // KL~equal to baseline vs a real llama.cpp reference at 120 sampled 8k-32k positions).
-        // Gated strictly to Qwen3.6's exact full-attention config (hd256, 8:1 GQA) so Qwythos
-        // (hd256, 4:1 GQA) and Qwen3-30B (hd128) keep the untouched generic policy above.
-        if (c.head_dim == 256 && c.n_kv_heads > 0 && c.n_q_heads == c.n_kv_heads * 8 && want >= 128)
-            want = 160;
+        // GQA-8 (Qwen3.6): flat 160 through 32k (4k–32k A/B on RTX 5090).
+        // GQA-4 (Qwythos): same through 32k; promote splits at 64k/128k so per-split MMA
+        // chunks do not outgrow occupancy (64k: 192, 128k: 128 — same-box sweeps).
+        if (c.head_dim == 256 && c.n_kv_heads > 0 && want >= 128) {
+            if (c.n_q_heads == c.n_kv_heads * 8)
+                want = 160;
+            else if (c.n_q_heads == c.n_kv_heads * 4) {
+                if ((long)seqlen > 98304L)           want = 128;  // 128k decode (seqlen ~131k)
+                else if ((long)seqlen > 65536L)      want = 192;  // 64k decode band
+                else                                 want = 160;
+            }
+        }
         if (want != s.n_splits) {                       // changed -> invalidate the captured graph
             s.n_splits = want;
             if (s.graph_ready) {
@@ -367,11 +375,20 @@ int Qwen35Model::forward_token(int token_id, int position) {
         const char* e = getenv("SPARKINFER_FAMMA");
         famma_graph = (e && e[0] == '0') ? 0 : 1;
     }
+    static int famma4_graph = -1;
+    if (famma4_graph < 0) {
+        const char* e = getenv("SPARKINFER_FAMMA4");
+        famma4_graph = (e && e[0] == '0') ? 0 : 1;
+    }
     int attn_graph_mode = 0;
     if (famma_graph && s.kv->int8_kv() && s.kv->block_size() == 16 &&
         c.n_kv_heads > 0 && c.n_q_heads == c.n_kv_heads * 8) {
         const int mma_chunk = (s.n_splits > 0) ? (seqlen + s.n_splits - 1) / s.n_splits : 0;
         attn_graph_mode = (seqlen > 512 && mma_chunk >= 32) ? 2 : 1;
+    } else if (famma4_graph && s.kv->int8_kv() && s.kv->block_size() == 16 &&
+               c.n_kv_heads > 0 && c.n_q_heads == c.n_kv_heads * 4) {
+        const int mma_chunk = (s.n_splits > 0) ? (seqlen + s.n_splits - 1) / s.n_splits : 0;
+        attn_graph_mode = (seqlen > 512 && mma_chunk >= 32) ? 3 : 1;
     }
     if (s.graph_ready && attn_graph_mode != s.graph_attn_mode) {
         cu(cudaGraphExecDestroy(s.cu_exec), "graph recapture destroy exec");
@@ -584,7 +601,7 @@ int Qwen35Model::forward_token(int token_id, int position) {
                 const bool any_q80 = (w.wq_type == 8 || w.wk_type == 8 || w.wv_type == 8);
                 prepare_xn_quant(any_q4k, any_q6k, any_q80);
                 const int nq = w.q_has_gate ? s.qdim * 2 : s.qdim;
-                const bool attn_qkv = s.use_attn_qkv && s.use_pq && s.use_llama && H == 2048
+                const bool attn_qkv = s.use_attn_qkv && s.use_pq && s.use_llama && (H == 2048 || H == 4096)
                                    && w.wq_type == 12 && w.wk_type == 12 && w.wv_type == 12;
                 if (attn_qkv) {
                     kernels::launch_attn_qkv_mmvq_q4k(s.aq81, w.wq, w.wk, w.wv,
@@ -688,7 +705,8 @@ int Qwen35Model::forward_token(int token_id, int position) {
             // ---- attention (Q8-emit only when output is not gated: the gate mutates attn after decode) ----
             static int attn_gq8 = -1;
             if (attn_gq8 < 0) { const char* e = getenv("SPARKINFER_ATTN_GQ8"); attn_gq8 = (e && e[0] == '0') ? 0 : 1; }
-            const bool attn_gate_q8 = attn_gq8 && w.q_has_gate && s.gguf && s.use_pq && s.use_llama && H == 2048
+            const bool attn_gate_q8 = attn_gq8 && w.q_has_gate && s.gguf && s.use_pq && s.use_llama
+                                      && (H == 2048 || H == 4096)
                                       && (w.wo_type == 12 || w.wo_type == 8) && (s.qdim % 32 == 0);
             const bool emit_attn_q8 = !w.q_has_gate && s.use_attnin && s.gguf && s.use_pq && s.use_llama && w.wo_type == 12;
             kernels::launch_flash_decode_split(s.q, kpool, vpool, btable, s.d_seqlen, s.attn,
@@ -950,6 +968,16 @@ int Qwen35Model::forward_token(int token_id, int position) {
     cu(cudaGraphInstantiate(&s.cu_exec, s.cu_graph, 0), "graph instantiate");
     s.graph_ready = true;
     s.graph_attn_mode = attn_graph_mode;
+    static int graph_dbg = -1;
+    if (graph_dbg < 0) {
+        const char* e = getenv("SPARKINFER_GRAPH_DEBUG");
+        graph_dbg = (e && e[0] == '1') ? 1 : 0;
+    }
+    if (graph_dbg) {
+        const int mma_chunk = (s.n_splits > 0) ? (seqlen + s.n_splits - 1) / s.n_splits : 0;
+        fprintf(stderr, "[graph] capture pos=%d seqlen=%d n_splits=%d attn_mode=%d mma_chunk=%d\n",
+                position, seqlen, s.n_splits, attn_graph_mode, mma_chunk);
+    }
     cu(cudaGraphLaunch(s.cu_exec, st), "graph launch (first)");
 
     cu(cudaMemcpyAsync(s.h_out_id, s.d_out_id, sizeof(int), cudaMemcpyDeviceToHost, st), "out_id");
@@ -1154,7 +1182,15 @@ bool Qwen35Model::load_gguf(const std::string& path) {
     };
     // Optional Q6_K -> Q4_K requant: pay a load-time dequant+fit so decode reads
     // 4.5 instead of 6.5 bits/weight. The source Q6_K upload is freed after the
-    // requant; qtype flips to 12 on success.
+    // requant; qtype flips to 12 on success. Attention tensors use the Lloyd-max fit
+    // (PR #353); FFN down keeps the affine fitter.
+    auto is_attn_requant_name = [](const std::string& name) {
+        return name.find(".attn_qkv.weight") != std::string::npos ||
+               name.find(".attn_q.weight") != std::string::npos ||
+               name.find(".attn_k.weight") != std::string::npos ||
+               name.find(".attn_v.weight") != std::string::npos ||
+               name.find(".attn_output.weight") != std::string::npos;
+    };
     auto dev_quant_requant_q4k = [&](const std::string& name, int& qtype, bool req) -> const void* {
         const void* q6 = dev_quant(name, qtype);
         if (!req || (qtype != 14 && qtype != 8) || !q6) return q6;
@@ -1167,10 +1203,17 @@ bool Qwen35Model::load_gguf(const std::string& path) {
         kernels::launch_gguf_dequant(src_type, q6, deq, nv, s.stream);
         void* q4 = nullptr;
         if (cudaMalloc(&q4, (size_t)(nv / 256) * 144) != cudaSuccess) { cudaFree(deq); return q6; }
-        // Q8_0 attention projections (Qwen3.6 full-attn q/o) fit with the Lloyd-max
-        // requantizer; the Q6_K dense-FFN down path keeps its existing affine fit.
-        if (src_type == 8) kernels::launch_proj_requant_q4k_lloyd(deq, q4, nv, s.stream);
-        else               kernels::launch_ffn_down_requant_q4k(deq, q4, nv, s.stream);
+        static int attn_lloyd = -1;
+        if (attn_lloyd < 0) {
+            const char* e = getenv("SPARKINFER_ATTN_REQUANT_LLOYD");
+            attn_lloyd = (e && e[0] == '0') ? 0 : 1;
+        }
+        if (src_type == 8)
+            kernels::launch_proj_requant_q4k_lloyd(deq, q4, nv, s.stream);
+        else if (is_attn_requant_name(name) && attn_lloyd)
+            kernels::launch_proj_requant_q4k_lloyd(deq, q4, nv, s.stream);
+        else
+            kernels::launch_ffn_down_requant_q4k(deq, q4, nv, s.stream);
         cudaStreamSynchronize(s.stream);
         cudaFree(deq);
         if (!s.owned.empty() && s.owned.back() == q6) { s.owned.pop_back(); cudaFree((void*)q6); }
@@ -1240,8 +1283,9 @@ bool Qwen35Model::load_gguf(const std::string& path) {
     const char* attn_env = getenv("SPARKINFER_ATTN_REQUANT_Q4K");
     const std::string attn_requant_mode =
         attn_env ? std::string(attn_env)
-                 : (q35_dense9b_requant_default ? std::string("qkv")
-                    : (q36_ud_requant_default ? std::string("attn_q,attn_output,qkv,attn_gate") : std::string()));
+                 : (q35_dense9b_requant_default ? std::string("qkv,v")
+                    : (q36_ud_requant_default ? std::string("attn_q,attn_output,qkv,attn_gate")
+                                              : std::string()));
     auto mode_token = [&](const char* want) {
         const std::string w(want);
         size_t p = 0;
@@ -1297,13 +1341,13 @@ bool Qwen35Model::load_gguf(const std::string& path) {
     const bool req_attn_all = !mode_is_off(attn_requant_mode) &&
         (attn_requant_mode == "1" || mode_token("all") || mode_token("true") || mode_token("TRUE") ||
          mode_token("on") || mode_token("ON") || mode_token("yes") || mode_token("YES"));
-    // Qwythos Q4_K_M leaves twelve linear-attention QKV matrices in Q6_K. Requanting all
-    // twelve is fast but marginal on the fuzzed top-1 gate; layer 2 is the sensitive outlier.
+    // Qwythos Q4_K_M leaves one linear-attention QKV matrix in Q6_K at decode (layer 2 was the
+    // sensitive outlier in early gates; included in default list after re-validation).
     const char* qkv_layers_env = getenv("SPARKINFER_ATTN_REQUANT_Q4K_QKV_LAYERS");
     const std::string qkv_requant_layers =
         qkv_layers_env ? std::string(qkv_layers_env)
                        : ((q35_dense9b_requant_default && !attn_env)
-                            ? std::string("0,1,6,9,12,18,21,24,28,29,30")
+                            ? std::string("0,1,2,6,9,12,18,21,24,28,29,30")
                             : std::string());
     int qkv_requant_limit = -1;
     if (const char* ql = getenv("SPARKINFER_ATTN_REQUANT_Q4K_QKV_LIMIT")) {
