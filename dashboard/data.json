@@ -4014,8 +4014,8 @@
     "baseline_tps": 298.27,
     "ref_name": "llama.cpp",
     "ref_tps": 224.91,
-    "token_match": 0.9553,
-    "kl": 0.028,
+    "token_match": 0.9613,
+    "kl": 0.0141,
     "note": "same-box baseline 91.224.44.227 (KV cap fix, origin/main + kMaxBlocksPerSeq=10240, 2026-07-13)",
     "ctx": [
       {
@@ -4077,6 +4077,13 @@
       "name": "complete gate_up->quant_h->d",
       "tps": 298.27,
       "pr": 331,
+      "date": "2026-07-13",
+      "label": "XS"
+    },
+    {
+      "name": "GQA-4 shared-KV tile for Qwy",
+      "tps": 298.27,
+      "pr": 327,
       "date": "2026-07-13",
       "label": "XS"
     },
