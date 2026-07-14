@@ -12,8 +12,8 @@ Shared thresholds live in `eval/copycat_policy.py`.
 
 - PRs are compared **oldest-first** (ascending PR number), so the original is always seen before any copy.
 - Fingerprint = (changed files, normalized non-comment added lines).
-- Compared against **every earlier PR** by a **different author** that touches the same file(s)
-  (open + merged; eval bot also includes closed).
+- Compared against **every earlier open PR** by a **different author** that touches the same file(s)
+  (closed and merged PRs are **not** used as copycat references).
 - **Self-resubmissions** (same author iterating on their own earlier PR) are **not** copycats.
 
 ### Tiered policy

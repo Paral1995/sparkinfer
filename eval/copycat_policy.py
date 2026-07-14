@@ -23,6 +23,9 @@ LLM_ENABLED = False
 # Back-compat alias
 COPYCAT_CONTAINMENT = COPYCAT_BLOCK
 
+# Copycat reference pool: only still-open PRs (excludes closed and merged).
+COPYCAT_REFERENCE_STATE = "open"
+
 
 def skip_copycat_scoring(added_lines, containment):
     """Skip borderline scoring on tiny PRs unless near-literal copy."""

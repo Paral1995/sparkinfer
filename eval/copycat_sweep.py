@@ -17,9 +17,7 @@ REPO = os.environ.get("EVAL_REPO", "gittensor-ai-lab/sparkinfer")
 
 def sweep(apply=False):
     """Run full copycat detection across all open non-draft PRs."""
-    open_prs = json.loads(gh(["pr", "list", "-R", REPO, "--state", "open",
-                               "--json", "number,author,isDraft,title", "--limit", "100"]).stdout or "[]")
-    open_prs = [p for p in open_prs if not p["isDraft"]]
+    open_prs = list_reference_prs(REPO, limit=100)
     all_nums = sorted(p["number"] for p in open_prs)
     pr_author = {p["number"]: p["author"]["login"] for p in open_prs}
     pr_title  = {p["number"]: p["title"] for p in open_prs}

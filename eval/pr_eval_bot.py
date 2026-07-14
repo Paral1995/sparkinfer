@@ -315,7 +315,7 @@ def block_account(login, reason):
 # Tiered policy (shared with eval/copycat_policy.py + copycat_guard.py):
 #   ≥85% containment → block + close; 75–84% → copycat-warn; 3 warns → block.
 from copycat_policy import COPYCAT_BLOCK, COPYCAT_WARN, MAX_WARNINGS, skip_copycat_scoring
-from copycat_guard import warn_copycat
+from copycat_guard import warn_copycat, list_reference_prs
 
 FLAG_FILE = os.path.join(ROOT, ".github", "FLAGGED.md")
 COPYCAT_LABEL = "copycat"
@@ -1699,12 +1699,11 @@ def main():
     if not prs:
         print("no open PRs"); return
 
-    # Fingerprint EVERY PR (open + closed + merged) so an open PR can be compared against any earlier
-    # one — copies often target already-merged originals. Built once, ascending by number.
-    all_prs = json.loads(gh(["pr", "list", "-R", args.repo, "--state", "all",
-                             "--json", "number,author", "-L", "300"]).stdout or "[]")
-    all_nums = sorted(p["number"] for p in all_prs)
-    pr_author = {p["number"]: (p.get("author") or {}).get("login", "?") for p in all_prs}
+    # Fingerprint open PRs only — copycat comparison is against still-open earlier PRs
+    # (closed/merged are excluded; see eval/copycat_policy.py COPYCAT_REFERENCE_STATE).
+    ref_prs = list_reference_prs(args.repo)
+    all_nums = sorted(p["number"] for p in ref_prs)
+    pr_author = {p["number"]: (p.get("author") or {}).get("login", "?") for p in ref_prs}
     fps = {n: pr_fingerprint(args.repo, n) for n in all_nums}
     copy_log = load_copycat_log()
     logged_blocked = {e["pr"] for e in copy_log if e.get("blocked", True)}
@@ -1756,7 +1755,7 @@ def main():
             print(f"PR #{num}: BLOCKED (denylisted: {', '.join(sorted(hits))}) — flag + close, no eval")
             if not args.dry_run: close_blocked_pr(args.repo, num, hits)
             continue
-        # Gate 2 — copycat: tiered containment vs earlier PRs (open/closed/merged).
+        # Gate 2 — copycat: tiered containment vs earlier open PRs (not closed/merged).
         pr_labels = {l["name"] for l in pr.get("labels", [])}
         if COPYCAT_CLEARED_LABEL in pr_labels or num in cleared_copycats:
             print(f"PR #{num}: copycat-cleared — skip copycat gate")

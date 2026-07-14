@@ -21,6 +21,7 @@ from copycat_policy import (
     COPYCAT_BLOCK, COPYCAT_WARN, COPYCAT_CONTAINMENT, MAX_WARNINGS,
     MIN_ADDED_LINES, LITERAL_BLOCK, FUNC_BLOCK_WARN,
     STRUCTURAL_ENABLED, LLM_ENABLED, skip_copycat_scoring,
+    COPYCAT_REFERENCE_STATE,
 )
 
 REPO = os.environ.get("EVAL_REPO", "gittensor-ai-lab/sparkinfer")
@@ -455,6 +456,13 @@ def pr_author_login(repo, num):
     return (info.get("author") or {}).get("login", "")
 
 
+def list_reference_prs(repo, limit=300):
+    """PRs eligible as copycat originals — open non-draft only (not closed/merged)."""
+    raw = json.loads(gh(["pr", "list", "-R", repo, "--state", COPYCAT_REFERENCE_STATE,
+                         "--json", "number,author,isDraft", "--limit", str(limit)]).stdout or "[]")
+    return [p for p in raw if not p.get("isDraft")]
+
+
 # ---- main ----
 
 def main():
@@ -474,20 +482,15 @@ def main():
     if not added:
         print("  no added lines to scan — not a copycat"); return
 
-    open_prs = json.loads(gh(["pr", "list", "-R", REPO, "--state", "all",
-                               "--json", "number,author,isDraft,state", "--limit", "300"]).stdout or "[]")
+    open_prs = list_reference_prs(REPO)
     log = load_copycat_log()
     blocked_prs = {e["pr"] for e in log if e.get("blocked", True)}
     cleared_prs = {e["pr"] for e in log if e.get("blocked") is False}
     if pr_num in cleared_prs:
         print("  cleared in copycats.json — skip"); return
     pr_author = {p["number"]: p["author"]["login"] for p in open_prs}
-    earlier_nums = sorted(
-        p["number"] for p in open_prs
-        if p["number"] < pr_num and not p.get("isDraft")
-        and p.get("state") in ("OPEN", "MERGED")
-    )
-    print(f"  {len(earlier_nums)} earlier open/merged non-draft PRs to check")
+    earlier_nums = sorted(p["number"] for p in open_prs if p["number"] < pr_num)
+    print(f"  {len(earlier_nums)} earlier open non-draft PRs to check")
 
     original = None; orig_author = None; best_containment = 0.0
     pr_level_containment = 0.0
