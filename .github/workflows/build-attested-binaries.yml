@@ -8,6 +8,13 @@ name: build-attested-binaries
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "kernels/**"
+      - "moe/**"
+      - "runtime/**"
+      - ".github/workflows/build-attested-binaries.yml"
   push:
     tags: ["v*"]
     branches: [main]
