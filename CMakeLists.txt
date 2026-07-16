@@ -20,3 +20,8 @@ add_subdirectory(kernels)
 add_subdirectory(moe)
 add_subdirectory(runtime)
 # bench/ is benchmark scripts + frozen configs + results — not a CMake target.
+
+option(BUILD_SERVER "Build sparkinfer-server (OpenAI-compatible HTTP API)" OFF)
+if(BUILD_SERVER)
+  add_subdirectory(server)
+endif()
