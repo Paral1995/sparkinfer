@@ -68,17 +68,16 @@ jobs:
           find build/runtime build/moe -maxdepth 1 \( -name 'libsparkinfer_runtime.so*' -o -name 'libsparkinfer_moe.so*' \) \
             -exec install -m755 {} "${BUNDLE}/lib/" \;
           BENCH_SHA="$(sha256sum "${BUNDLE}/bin/qwen3_gguf_bench" | awk '{print $1}')"
-          cat > "${BUNDLE}/BUILD_MANIFEST.json" <<EOF
-{
-  "platform": "linux-amd64",
-  "cuda": "12.8",
-  "sm": "${CUDA_ARCH}",
-  "commit": "${GITHUB_SHA}",
-  "ref": "${GITHUB_REF}",
-  "binary": "bin/qwen3_gguf_bench",
-  "binary_sha256": "${BENCH_SHA}"
-}
-EOF
+          jq -n \
+            --arg platform "linux-amd64" \
+            --arg cuda "12.8" \
+            --arg sm "${CUDA_ARCH}" \
+            --arg commit "${GITHUB_SHA}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg binary "bin/qwen3_gguf_bench" \
+            --arg binary_sha256 "${BENCH_SHA}" \
+            '{platform:$platform,cuda:$cuda,sm:$sm,commit:$commit,ref:$ref,binary:$binary,binary_sha256:$binary_sha256}' \
+            > "${BUNDLE}/BUILD_MANIFEST.json"
           (cd "${BUNDLE}" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           ls -laR "${BUNDLE}"
 
