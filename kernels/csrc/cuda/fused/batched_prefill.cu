@@ -694,10 +694,19 @@ __global__ void pf_attn_int8_paged_kernel(
 void launch_prefill_gemm(const void* A, const void* W, void* C,
                          int M, int N, int K, cudaStream_t stream) {
     dim3 grid((N + PF_BN - 1) / PF_BN, (M + PF_BM - 1) / PF_BM);
-    // The mma.sync path reaches ~the int8 GEMM's efficiency (vs the wmma path's ~60% of the bf16
-    // roofline) and is the default; SPARKINFER_PREFILL_BF16_WMMA=1 selects the legacy wmma kernel (A/B).
+    // mma.sync is for the long-context bf16 projection path (Qwythos falls back from int8 past
+    // ~96k). Defaulting it on for every M broke Qwen3.6 MoE short-prefill accuracy (top1→0): MoE
+    // keeps bf16 projections at all contexts, so the eval gate always hit the new kernel. Keep
+    // wmma below mma_min_m (default 98304, same threshold as SPARKINFER_PREFILL_BF16_MINCTX);
+    // SPARKINFER_PREFILL_BF16_WMMA=1 forces wmma for all M (A/B).
     static int wmma = []{ const char* e = getenv("SPARKINFER_PREFILL_BF16_WMMA"); return e && e[0] != '0' ? 1 : 0; }();
-    if (wmma)
+    static int mma_min_m = []{
+        const char* e = getenv("SPARKINFER_PREFILL_BF16_MMA_MIN_M");
+        if (e && e[0]) return atoi(e);
+        const char* t = getenv("SPARKINFER_PREFILL_BF16_MINCTX");
+        return t && t[0] ? atoi(t) : 98304;
+    }();
+    if (wmma || M < mma_min_m)
         pf_gemm_kernel<<<grid, 256, 0, stream>>>(
             reinterpret_cast<const __nv_bfloat16*>(A), reinterpret_cast<const __nv_bfloat16*>(W),
             reinterpret_cast<__nv_bfloat16*>(C), M, N, K);
