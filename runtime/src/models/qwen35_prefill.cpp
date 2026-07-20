@@ -237,7 +237,11 @@ int prefill_batched_run(const Qwen35PrefillCtx& s, const int* prompt_ids, int n)
             }
             kernels::launch_prefill_gemm_i8(A_i8, W_i8, sx, sw, C, R, n_out, K, st);
         } else {
-            kernels::launch_prefill_gemm(A, dq(W, wtype, n_out, K), C, R, n_out, K, st);
+            // mma.sync bf16 GEMM only for dense-hybrid long prefill (the >96k int8→bf16 fallback).
+            // MoE always stays on wmma: its top-k router turns tiny GEMM differences into expert
+            // flips that fail the Qwen3.6 accuracy gate.
+            const bool prefer_mma = !moe && R > bf16_minctx;
+            kernels::launch_prefill_gemm(A, dq(W, wtype, n_out, K), C, R, n_out, K, st, prefer_mma);
         }
     };
 

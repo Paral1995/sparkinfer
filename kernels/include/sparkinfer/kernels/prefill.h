@@ -16,10 +16,14 @@
 
 namespace sparkinfer { namespace kernels {
 
-// Tensor-core (wmma bf16) GEMM: C[M,N] = A[M,K] @ W^T, where W is the native GGUF
+// Tensor-core bf16 GEMM: C[M,N] = A[M,K] @ W^T, where W is the native GGUF
 // weight [N,K] row-major (so C[m,n] = sum_k A[m,k]*W[n,k]). A,W,C bf16, fp32 accumulate.
+// prefer_mma: use the mma.sync kernel (faster long-context path). Callers should pass true
+// only for dense-hybrid long prefill (M large); MoE must keep false — the discrete top-k
+// router amplifies any residual GEMM difference into expert-selection flips.
 void launch_prefill_gemm(const void* A, const void* W, void* C,
-                         int M, int N, int K, cudaStream_t stream = nullptr);
+                         int M, int N, int K, cudaStream_t stream = nullptr,
+                         bool prefer_mma = false);
 
 // SwiGLU elementwise for the dense FFN: h[i] = silu(gate[i]) * up[i] over n elements.
 void launch_prefill_swiglu(const void* gate, const void* up, void* h, long n,
