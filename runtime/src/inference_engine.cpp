@@ -377,8 +377,12 @@ bool ContinuousBatchEngine::step_jobs_packed(const std::vector<uint64_t>& ids, b
         return !(e && e[0] == '0');
     }();
     if (!enabled || !model_) return false;
+    // A batch WIDER than the packed graph tiers is split into chunks of `cap`, not declined.
+    // Declining it fell all the way back to one forward per sequence, so crossing the cap cost
+    // more than never packing at all: measured on RTX 5090 / Qwen3.8-27B-NVFP4, aggregate went
+    // 334.9 tok/s at concurrency 8 to 79.0 at 12 -- a 4.2x collapse one request past the cap.
     const int cap = Qwen35Model::max_packed_rows();
-    if ((int)ids.size() < 2 || (int)ids.size() > cap) return false;
+    if ((int)ids.size() < 2) return false;
     const Qwen35Config& cfg = model_->config();
 
     std::vector<Job*> jobs;
@@ -441,34 +445,37 @@ bool ContinuousBatchEngine::step_jobs_packed(const std::vector<uint64_t>& ids, b
     }
     if (live.empty()) return true;
 
-    std::vector<int> toks, pos, out((size_t)live.size(), -1);
+    // Advance the survivors in chunks of `cap`. A chunk of one (the tail of an odd batch, or all
+    // but one row having finished above) is not worth a packed forward, and decode_packed declines
+    // a batch it cannot serve; either way those rows still have to advance, so they fall through
+    // to the ordinary per-row forward. Tokens already emitted stay emitted -- this is the same
+    // work by a different route, not a retry.
+    std::vector<int> toks, pos, out;
     std::vector<uint64_t> seqs;
-    toks.reserve(live.size()); pos.reserve(live.size()); seqs.reserve(live.size());
-    for (Job* j : live) {
-        toks.push_back(j->next_token);
-        pos.push_back((int)j->req.prompt.size() + j->decode_emitted - 1);
-        seqs.push_back(j->seq_id);
-    }
-
-    // One row left (the rest finished above) is not worth a packed forward, and decode_packed
-    // declines a batch it cannot serve; either way the remaining rows still have to advance, so
-    // fall through to the ordinary per-row forward. The tokens already emitted stay emitted --
-    // this is the same work by a different route, not a retry.
-    bool ok = false;
-    if (live.size() >= 2)
-        ok = model_->decode_packed(toks.data(), pos.data(), seqs.data(), (int)live.size(),
-                                   out.data());
-    if (!ok) {
-        for (size_t i = 0; i < live.size(); i++) {
-            Job* j = live[i];
-            model_->activate_session(j->seq_id);
-            out[i] = model_->forward_token(j->next_token, pos[i], true, j->req.temperature,
-                                           j->req.seed, (uint64_t)j->decode_emitted,
-                                           j->req.top_k, j->req.top_p,
-                                           j->req.presence_penalty, j->req.frequency_penalty);
+    for (size_t off = 0; off < live.size(); off += (size_t)cap) {
+        const size_t m = std::min((size_t)cap, live.size() - off);
+        toks.clear(); pos.clear(); seqs.clear(); out.assign(m, -1);
+        for (size_t i = 0; i < m; i++) {
+            Job* j = live[off + i];
+            toks.push_back(j->next_token);
+            pos.push_back((int)j->req.prompt.size() + j->decode_emitted - 1);
+            seqs.push_back(j->seq_id);
         }
+        bool ok = false;
+        if (m >= 2)
+            ok = model_->decode_packed(toks.data(), pos.data(), seqs.data(), (int)m, out.data());
+        if (!ok) {
+            for (size_t i = 0; i < m; i++) {
+                Job* j = live[off + i];
+                model_->activate_session(j->seq_id);
+                out[i] = model_->forward_token(j->next_token, pos[i], true, j->req.temperature,
+                                               j->req.seed, (uint64_t)j->decode_emitted,
+                                               j->req.top_k, j->req.top_p,
+                                               j->req.presence_penalty, j->req.frequency_penalty);
+            }
+        }
+        for (size_t i = 0; i < m; i++) live[off + i]->next_token = out[i];
     }
-    for (size_t i = 0; i < live.size(); i++) live[i]->next_token = out[i];
     return true;
 }
 
