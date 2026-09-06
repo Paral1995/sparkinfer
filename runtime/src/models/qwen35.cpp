@@ -238,6 +238,12 @@ struct Qwen35Model::Impl {
     bool dflash_graph_ready = false;
     int dflash_graph_attn_mode = -1;
     bool dflash_graph_sparse = false;
+    // Reusable device pointer arrays for packed decode (see Qwen35Model::decode_packed). Their
+    // ADDRESSES are baked into the packed graph; their CONTENTS are rewritten every step, which
+    // is what lets one graph per row count serve any set of sessions.
+    void* packed_dev_states = nullptr;
+    void* packed_dev_convs = nullptr;
+    void* packed_dev_tables = nullptr;
 
     // Per-session parking lot for the AR decode graph.
     //
@@ -794,6 +800,9 @@ Qwen35Model::~Qwen35Model() {
         if (kv.second.lin_state) cudaFree(kv.second.lin_state);
         if (kv.second.lin_conv_state) cudaFree(kv.second.lin_conv_state);
     }
+    if (p_->packed_dev_states) cudaFree(p_->packed_dev_states);
+    if (p_->packed_dev_convs) cudaFree(p_->packed_dev_convs);
+    if (p_->packed_dev_tables) cudaFree(p_->packed_dev_tables);
     for (auto& kv : p_->parked_graphs) {
         if (kv.second.exec) cudaGraphExecDestroy(kv.second.exec);
         if (kv.second.graph) cudaGraphDestroy(kv.second.graph);
@@ -3191,6 +3200,62 @@ void Qwen35Model::close_session(uint64_t seq_id, const std::vector<int>* store_t
         s.sessions.erase(it);
     }
     if (s.active_seq_id == seq_id) activate_session(0);
+}
+
+int Qwen35Model::max_packed_rows() { return kQwen35MaxPackedRows; }
+
+bool Qwen35Model::decode_packed(const int* tokens, const int* positions,
+                                const uint64_t* seq_ids, int n, int* out_sampled) {
+    Impl& s = *p_;
+    if (!tokens || !positions || !seq_ids || !out_sampled) return false;
+    if (n < 1 || n > kQwen35MaxPackedRows) return false;
+    if (!s.cfg.hybrid || !s.gguf) return false;
+    std::lock_guard<std::recursive_mutex> device_lock(s.device_mu);
+
+    // Resolve each row's per-session buffers. A row whose session is missing (or never got its
+    // hybrid state) cannot be packed -- decline the whole batch rather than silently decode it
+    // against another request's state.
+    float* h_states[kQwen35MaxPackedRows];
+    void*  h_convs[kQwen35MaxPackedRows];
+    const int* h_tables[kQwen35MaxPackedRows];
+    for (int i = 0; i < n; i++) {
+        auto it = s.sessions.find(seq_ids[i]);
+        if (it == s.sessions.end() || !it->second.lin_state || !it->second.lin_conv_state)
+            return false;
+        const int* tbl = s.kv->block_table(seq_ids[i]);
+        if (!tbl) return false;
+        h_states[i] = it->second.lin_state;
+        h_convs[i]  = it->second.lin_conv_state;
+        h_tables[i] = tbl;
+    }
+
+    if (!s.packed_dev_states) {
+        const size_t np = kQwen35MaxPackedRows;
+        if (cudaMalloc(&s.packed_dev_states, np * sizeof(float*)) != cudaSuccess) return false;
+        if (cudaMalloc(&s.packed_dev_convs, np * sizeof(void*)) != cudaSuccess) return false;
+        if (cudaMalloc(&s.packed_dev_tables, np * sizeof(const int*)) != cudaSuccess) return false;
+    }
+    cu(cudaMemcpyAsync(s.packed_dev_states, h_states, (size_t)n * sizeof(float*),
+                       cudaMemcpyHostToDevice, s.stream), "packed states");
+    cu(cudaMemcpyAsync(s.packed_dev_convs, h_convs, (size_t)n * sizeof(void*),
+                       cudaMemcpyHostToDevice, s.stream), "packed convs");
+    cu(cudaMemcpyAsync(s.packed_dev_tables, h_tables, (size_t)n * sizeof(const int*),
+                       cudaMemcpyHostToDevice, s.stream), "packed tables");
+    cu(cudaStreamSynchronize(s.stream), "packed ptr upload");
+
+    Qwen35PrefillCtx ctx{ s.cfg, s.w, s.kv, s.stream, s.stream_k, s.stream_v, seq_ids[0],
+                          h_states[0], h_convs[0], s.logits, s.d_out_id, s.h_out_id, s.gguf,
+                          s.emb_norm_ones,
+                          s.qdim, s.kvdim, s.linear_qdim, s.linear_vdim, s.linear_qkvdim,
+                          s.moe_rs_gate, s.moe_rs_up, s.moe_rs_down, s.n_splits,
+                          nullptr, 0, nullptr, 0 };
+    ctx.packed_pos       = positions;
+    ctx.packed_rows      = reinterpret_cast<const int* const*>(s.packed_dev_tables);
+    ctx.packed_lin_state = reinterpret_cast<float* const*>(s.packed_dev_states);
+    ctx.packed_lin_conv  = reinterpret_cast<void* const*>(s.packed_dev_convs);
+    const int consumed = dflash_verify_short_run(ctx, tokens, n, positions[0],
+                                                 nullptr, 0, nullptr, out_sampled);
+    return consumed == n;
 }
 
 void Qwen35Model::activate_session(uint64_t seq_id) {
